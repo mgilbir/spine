@@ -112,6 +112,70 @@
   entries across the local corpus. An edit box (`ObjectType="Edit"`) was
   looked up as `EditBox` and reported as unknown; it is now
   `FormControlEditBox`. A type outside the schema still reads as unknown.
+- opc: opening a crafted encrypted package no longer panics on a 32-bit
+  platform. The CFB reader bounded a sector number with `int(s) >= len(fat)`,
+  and on a 32-bit build `int` of a sector number at or above 2^31 is negative,
+  so the check passed and the FAT was then indexed with the unconverted value.
+  The container header is read before any password is asked for, so one
+  patched header field crashed `OpenReader` in every format. The FAT and
+  mini-FAT bounds and the mini-sector offset are now computed in 64 bits
+  (C612).
+- xlsx, pptxrender: a style index at or above 2^31 is out of range on a 32-bit
+  platform too. A cell's `s`, an xf's `fontId`, `fillId` or `borderId`, a
+  `cellStyle`'s `xfId` and a `cfRule`'s `dxfId` were bounded with the same
+  `int(idx) < len(...)` form, so on a 32-bit build `CellStyleAt`,
+  `NamedStyles`, `ApplyNamedStyle`, `DifferentialFormat`, `CopySheetFrom` and
+  `AppendSheetsFrom` panicked on a file carrying one, and `CellStyleAt` on a
+  caller passing one; a theme line or effect style reference did the same in
+  the slide renderer (C613).
+- xlsx: every reader of a shared-string cell parses its index the same way.
+  `String`, `RichText` (and `ReplaceText` through it), the copy made by
+  `CopySheetFrom` and `AppendSheetsFrom`, and the renderer each parsed it
+  differently. `RichText` used a digit loop with no overflow check, so
+  `<v>18446744073709551618</v>` read as empty through `String` but as shared
+  string 2 through `RichText`, and `ReplaceText` then wrote that string's edited
+  text into the cell. `<v> 2</v>` read as empty but was copied as string 2, and
+  `<v>+2</v>` read as string 2 through `String` alone. White space around the
+  index and a leading plus sign are now accepted everywhere; anything else,
+  including an index past 2^31, reads as an empty cell everywhere (C614).
+- xlsx: `UnmergeCells` removes a merge the file stored reversed (`B2:A1`) or as
+  a single cell (`A1`). It compared the stored text with the normalized
+  `A1:B2`, so such a merge could not be removed and still blocked a new merge
+  over the same cells (C615).
+- xlsx: `Sheet.Text` and `Workbook.Text` allocate about twice the text they
+  return, not twenty-four times. Each row filled a slice as wide as its last
+  column, every joined row was held until the rows were sorted, and
+  `Workbook.Text` copied each sheet again, so 20000 rows with one cell each in
+  column XFD (a 100 KB file) allocated 7.4 GB in 3.4 s to return 328 MB of
+  text; they now allocate 595 MB in 0.8 s. The text is unchanged: a cell is
+  still placed at its column, so a sparse sheet's text can be far larger than
+  its file (C616).
+- crypto: opening an agile-encrypted file runs the password spin once, not
+  once per derived key. The spin (`spinCount` hashes, 100000 from Office and
+  up to 1000000 accepted) does not depend on the key being derived, but it ran
+  for each of three, so a wrong password cost two spins and a right one three.
+  A file at the ceiling now fails a wrong password in about half the time and
+  opens in about a third (C617).
+- xlsx: the 31-character sheet name limit counts UTF-16 code units, as Excel
+  does ([MS-XLS] §2.4.28). It counted characters, so `ValidateSheetName`,
+  `AddSheet` and `SetName` accepted a name of 16 emoji (32 units) that Excel
+  rejects, and `UniqueSheetName` could return one. `UniqueSheetName` now trims
+  to 31 units without splitting a character (C618).
+- opc, docx, pptx, xlsx: an open fails when a part is in the package but cannot
+  be read — a corrupt entry, or one declaring more bytes than the
+  decompression limit allows. Most such parts were skipped as if absent, and
+  the next save dropped them: an unreadable `docProps/core.xml` opened cleanly
+  in every format, as did a docx's `word/_rels/document.xml.rels` and a deck's
+  theme, `presProps.xml` or slide-layout relationships, and the saved package
+  lacked the part. An unreadable `xl/_rels/workbook.xml.rels` was reported as
+  a sheet referencing a relationship "which does not exist". A part that is
+  genuinely missing is still tolerated where it was before. The error names
+  the part and wraps the cause, and every decompression-limit error now
+  matches the new `opc.ErrDecompressionLimit`. A docx body or pptx slide that
+  is re-read from the source after open, and cannot be by then, fails the
+  save instead of being written empty (docx panicked; pptx wrote a blank
+  slide). `VerifySignatures` returns an error for an unreadable signature
+  origin relationships part rather than reporting fewer signatures (C619).
 
 ### Changed
 

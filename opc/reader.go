@@ -74,7 +74,7 @@ func declaredSize(zf *zip.File) int64 {
 // per-part cap or the remaining package budget.
 func (b *decompressionBudget) admit(zf *zip.File) (int64, error) {
 	if b.maxPart > 0 && zf.UncompressedSize64 > uint64(b.maxPart) {
-		return 0, fmt.Errorf("opc: part %q declares %d bytes, exceeding the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", zf.Name, zf.UncompressedSize64, b.maxPart)
+		return 0, limitErrorf("opc: part %q declares %d bytes, exceeding the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", zf.Name, zf.UncompressedSize64, b.maxPart)
 	}
 
 	// Effective cap on the bytes actually read; -1 means unbounded.
@@ -100,7 +100,7 @@ func (b *decompressionBudget) admit(zf *zip.File) (int64, error) {
 			uncharged = 0
 		}
 		if uncharged > pkgRemaining {
-			return 0, fmt.Errorf("opc: part %q declares %d bytes, which would exceed the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", zf.Name, zf.UncompressedSize64, b.maxPackage, b.total)
+			return 0, limitErrorf("opc: part %q declares %d bytes, which would exceed the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", zf.Name, zf.UncompressedSize64, b.maxPackage, b.total)
 		}
 		// A read may legitimately reach the entry's high-water mark plus the
 		// package's remaining budget before it would overrun the bound.
@@ -129,7 +129,7 @@ func (b *decompressionBudget) charge(zf *zip.File, n int64) error {
 		return nil
 	}
 	if delta > b.maxPackage-b.total {
-		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", zf.Name, b.maxPackage, b.total)
+		return limitErrorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", zf.Name, b.maxPackage, b.total)
 	}
 	b.total += delta
 	b.charged[zf] = n
@@ -165,7 +165,7 @@ func (b *decompressionBudget) readZipEntry(zf *zip.File) ([]byte, error) {
 		return nil, err
 	}
 	if b.maxPart > 0 && int64(len(data)) > b.maxPart {
-		return nil, fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", zf.Name, b.maxPart)
+		return nil, limitErrorf("opc: part %q exceeds the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", zf.Name, b.maxPart)
 	}
 
 	// Nesting is checked here rather than at unmarshal because this is the one
@@ -253,7 +253,7 @@ func (s *budgetedReadCloser) Read(p []byte) (int, error) {
 			return n, cerr
 		}
 		if s.b.maxPart > 0 && s.streamed > s.b.maxPart {
-			s.err = fmt.Errorf("opc: part %q exceeds the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", s.name, s.b.maxPart)
+			s.err = limitErrorf("opc: part %q exceeds the %d-byte per-part decompression limit (pass WithMaxDecompressedPartSize to allow it)", s.name, s.b.maxPart)
 			return n, s.err
 		}
 	}
@@ -286,7 +286,7 @@ func (s *budgetedReadCloser) chargeStream() error {
 	}
 	b.mu.Unlock()
 	if over {
-		return fmt.Errorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", s.name, b.maxPackage, already)
+		return limitErrorf("opc: part %q exceeds the %d-byte package decompression limit with %d bytes already decompressed (pass WithMaxDecompressedPackageSize to allow it)", s.name, b.maxPackage, already)
 	}
 	return nil
 }
@@ -606,10 +606,20 @@ func newReaderFromZip(r io.ReaderAt, size int64, opts ReaderOptions) (*Reader, e
 		return nil, err
 	}
 
-	// Parse core, extended, and custom properties if they exist
-	reader.parseCoreProperties()
-	reader.parseExtendedProperties()
-	reader.parseCustomProperties()
+	// Parse core, extended, and custom properties if they exist. A property
+	// part that is malformed is tolerated (the typed field stays nil and the
+	// raw part passes through), but one that is present and cannot be READ —
+	// a corrupt entry, or one past a decompression limit — fails the open:
+	// treating it as absent let a later save drop or regenerate the part.
+	if err := reader.parseCoreProperties(); err != nil {
+		return nil, err
+	}
+	if err := reader.parseExtendedProperties(); err != nil {
+		return nil, err
+	}
+	if err := reader.parseCustomProperties(); err != nil {
+		return nil, err
+	}
 
 	return reader, nil
 }
@@ -654,49 +664,66 @@ func (r *Reader) parsePackageRelationships() error {
 	return nil
 }
 
-// parseCoreProperties reads the core properties if they exist.
-func (r *Reader) parseCoreProperties() {
+// readPropertyPart reads the part a package-level property relationship
+// points at. It returns (nil, nil) when the target is not in the package — an
+// optional absence — and an error when the part is present but its bytes
+// cannot be read, which is never the same thing as absent.
+func (r *Reader) readPropertyPart(rel *Relationship) ([]byte, error) {
+	target := ResolvePartName("/", rel.Target)
+	f := r.GetFile(target)
+	if f == nil {
+		return nil, nil
+	}
+	data, err := f.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("opc: reading part %s: %w", target, err)
+	}
+	return data, nil
+}
+
+// parseCoreProperties reads the core properties if they exist. It is
+// best-effort about content: a missing part or a parse failure leaves
+// Properties nil rather than failing the open. A part that is present but
+// unreadable is an error.
+func (r *Reader) parseCoreProperties() error {
 	// Find core properties relationship
 	for _, rel := range r.Relationships {
-		if rel.Type == RelTypeCore {
-			target := ResolvePartName("/", rel.Target)
-			f := r.GetFile(target)
-			if f == nil {
-				continue
-			}
-
-			data, err := f.ReadAll()
-			if err != nil {
-				continue
-			}
-
-			props, err := UnmarshalCoreProperties(data)
-			if err != nil {
-				continue
-			}
-
-			r.Properties = props
-			return
+		if rel.Type != RelTypeCore {
+			continue
 		}
+		data, err := r.readPropertyPart(rel)
+		if err != nil {
+			return err
+		}
+		if data == nil {
+			continue
+		}
+
+		props, err := UnmarshalCoreProperties(data)
+		if err != nil {
+			continue
+		}
+
+		r.Properties = props
+		return nil
 	}
+	return nil
 }
 
 // parseExtendedProperties reads the extended properties (app.xml) if they
-// exist. Like parseCoreProperties it is best-effort: a missing part or a
-// parse failure leaves ExtendedProperties nil rather than failing the open.
-func (r *Reader) parseExtendedProperties() {
+// exist. Like parseCoreProperties it is best-effort about content: a missing
+// part or a parse failure leaves ExtendedProperties nil rather than failing
+// the open, while a present but unreadable part is an error.
+func (r *Reader) parseExtendedProperties() error {
 	for _, rel := range r.Relationships {
 		if rel.Type != RelTypeExtended {
 			continue
 		}
-		target := ResolvePartName("/", rel.Target)
-		f := r.GetFile(target)
-		if f == nil {
-			continue
-		}
-
-		data, err := f.ReadAll()
+		data, err := r.readPropertyPart(rel)
 		if err != nil {
+			return err
+		}
+		if data == nil {
 			continue
 		}
 
@@ -706,26 +733,25 @@ func (r *Reader) parseExtendedProperties() {
 		}
 
 		r.ExtendedProperties = props
-		return
+		return nil
 	}
+	return nil
 }
 
 // parseCustomProperties reads the custom properties (docProps/custom.xml) if
-// they exist. Like the other property parses it is best-effort: a missing part
-// or a parse failure leaves CustomProperties nil rather than failing the open.
-func (r *Reader) parseCustomProperties() {
+// they exist. Like the other property parses it is best-effort about content:
+// a missing part or a parse failure leaves CustomProperties nil rather than
+// failing the open, while a present but unreadable part is an error.
+func (r *Reader) parseCustomProperties() error {
 	for _, rel := range r.Relationships {
 		if rel.Type != RelTypeCustom {
 			continue
 		}
-		target := ResolvePartName("/", rel.Target)
-		f := r.GetFile(target)
-		if f == nil {
-			continue
-		}
-
-		data, err := f.ReadAll()
+		data, err := r.readPropertyPart(rel)
 		if err != nil {
+			return err
+		}
+		if data == nil {
 			continue
 		}
 
@@ -735,8 +761,9 @@ func (r *Reader) parseCustomProperties() {
 		}
 
 		r.CustomProperties = props
-		return
+		return nil
 	}
+	return nil
 }
 
 // GetFile returns the file with the given path, or nil if not found. Part

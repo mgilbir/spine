@@ -84,21 +84,15 @@ func (c *Cell) RichText() []TextRun {
 
 // sharedStringItem returns the shared-string item this cell references, or nil.
 func (c *Cell) sharedStringItem() *oxml.CT_Rst {
-	if c.cell.V == nil || c.sheet == nil || c.sheet.workbook == nil {
+	if c.sheet == nil || c.sheet.workbook == nil {
 		return nil
 	}
 	ss := c.sheet.workbook.sharedStrings
 	if ss == nil {
 		return nil
 	}
-	idx := 0
-	for _, r := range *c.cell.V {
-		if r < '0' || r > '9' {
-			return nil
-		}
-		idx = idx*10 + int(r-'0')
-	}
-	if idx < 0 || idx >= len(ss.Si) {
+	idx, ok := c.cell.SharedStringIndex()
+	if !ok || idx >= len(ss.Si) {
 		return nil
 	}
 	return &ss.Si[idx]

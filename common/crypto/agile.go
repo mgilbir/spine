@@ -147,9 +147,8 @@ type agileEncryptedKey struct {
 const passwordKeyEncryptorURI = "http://schemas.microsoft.com/office/2006/keyEncryptor/password"
 
 // maxSpinCount caps the attacker-controlled spinCount read from EncryptionInfo.
-// Each iteration is a SHA-512 (or shorter hash) invocation and deriveKey runs
-// spinCount iterations three times before the password is verified, so a large
-// value stalls a core: a few hundred descriptor bytes buy seconds of work that
+// Each iteration is a SHA-512 (or shorter hash) invocation, and the spin runs
+// before the password is verified, so a large value stalls a core: a few hundred descriptor bytes buy seconds of work that
 // happens before anything about the caller's password is known. Office writes
 // 100000; this ceiling allows ten times that — generous for any legitimate
 // producer — while keeping the pre-check work under a second on current
@@ -439,9 +438,8 @@ func agileDecrypt(infoXML, encryptedPackage []byte, password string, opts Decryp
 		return nil, false, err
 	}
 
-	// Reject an over-large spinCount before any key derivation runs: deriveKey
-	// hashes spinCount times and is called three times below, all before the
-	// password is checked.
+	// Reject an over-large spinCount before any key derivation runs:
+	// spinPassword hashes spinCount times, before the password is checked.
 	if enc.SpinCount < 0 || enc.SpinCount > maxSpinCount {
 		return nil, false, fmt.Errorf("%w: spinCount %d out of range [0, %d]", ErrMalformedEncryptionInfo, enc.SpinCount, maxSpinCount)
 	}
@@ -478,19 +476,21 @@ func agileDecrypt(infoXML, encryptedPackage []byte, password string, opts Decryp
 
 	pwUTF16 := passwordToUTF16LE(password)
 
-	// Verify the password against the stored verifier before trusting any key.
-	verInputKey, err := deriveKey(kp, pkSalt, pwUTF16, enc.SpinCount, blockKeyVerifierHashInput)
+	// The spin is the costly part of every derivation and the same for all
+	// three block keys, so run it once. It ran once per key, tripling the
+	// time an open spends on a wrong password (C617).
+	spun, err := spinPassword(kp, pkSalt, pwUTF16, enc.SpinCount)
 	if err != nil {
 		return nil, false, err
 	}
+
+	// Verify the password against the stored verifier before trusting any key.
+	verInputKey := keyFromSpun(kp, spun, blockKeyVerifierHashInput)
 	verInput, err := aesCBCDecrypt(verInputKey, pkSalt, encVerInput)
 	if err != nil {
 		return nil, false, err
 	}
-	verValueKey, err := deriveKey(kp, pkSalt, pwUTF16, enc.SpinCount, blockKeyVerifierHashValue)
-	if err != nil {
-		return nil, false, err
-	}
+	verValueKey := keyFromSpun(kp, spun, blockKeyVerifierHashValue)
 	verValue, err := aesCBCDecrypt(verValueKey, pkSalt, encVerValue)
 	if err != nil {
 		return nil, false, err
@@ -502,10 +502,7 @@ func agileDecrypt(infoXML, encryptedPackage []byte, password string, opts Decryp
 	}
 
 	// Decrypt the intermediate key that actually protects the package.
-	keyValueKey, err := deriveKey(kp, pkSalt, pwUTF16, enc.SpinCount, blockKeyEncryptedKeyValue)
-	if err != nil {
-		return nil, false, err
-	}
+	keyValueKey := keyFromSpun(kp, spun, blockKeyEncryptedKeyValue)
 	secretKey, err := aesCBCDecrypt(keyValueKey, pkSalt, encKeyValue)
 	if err != nil {
 		return nil, false, err
@@ -690,12 +687,14 @@ func agileEncrypt(packageData []byte, password string) (encryptionInfo, encrypte
 
 	pwUTF16 := passwordToUTF16LE(password)
 
-	// Password verifier: store the verifier bytes and their hash, each wrapped
-	// under a distinct password-derived key.
-	verInputKey, err := deriveKey(kp, pkSalt, pwUTF16, spinCount, blockKeyVerifierHashInput)
+	spun, err := spinPassword(kp, pkSalt, pwUTF16, spinCount)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// Password verifier: store the verifier bytes and their hash, each wrapped
+	// under a distinct password-derived key.
+	verInputKey := keyFromSpun(kp, spun, blockKeyVerifierHashInput)
 	encVerInput, err := aesCBCEncrypt(verInputKey, pkSalt, pad(verifierInput, blockSize))
 	if err != nil {
 		return nil, nil, err
@@ -703,20 +702,14 @@ func agileEncrypt(packageData []byte, password string) (encryptionInfo, encrypte
 	hv := dp.newHash()
 	hv.Write(verifierInput)
 	verifierHash := hv.Sum(nil)
-	verValueKey, err := deriveKey(kp, pkSalt, pwUTF16, spinCount, blockKeyVerifierHashValue)
-	if err != nil {
-		return nil, nil, err
-	}
+	verValueKey := keyFromSpun(kp, spun, blockKeyVerifierHashValue)
 	encVerValue, err := aesCBCEncrypt(verValueKey, pkSalt, pad(verifierHash, blockSize))
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Wrap the intermediate key with a third password-derived key.
-	keyValueKey, err := deriveKey(kp, pkSalt, pwUTF16, spinCount, blockKeyEncryptedKeyValue)
-	if err != nil {
-		return nil, nil, err
-	}
+	keyValueKey := keyFromSpun(kp, spun, blockKeyEncryptedKeyValue)
 	encKeyValue, err := aesCBCEncrypt(keyValueKey, pkSalt, pad(secretKey, blockSize))
 	if err != nil {
 		return nil, nil, err
@@ -854,7 +847,22 @@ func marshalEncryptionInfo(info *agileEncryptionInfo) ([]byte, error) {
 // ([MS-OFFCRYPTO] §2.3.4.11): H0 = hash(salt‖password); iterate spinCount times
 // prepending the little-endian counter; then hash once more with the block key
 // and take the leading keyBytes, 0x36-padding a short digest.
+//
+// The iterated hash does not depend on the block key, so a caller deriving
+// several keys from one password should call spinPassword once and
+// keyFromSpun per block key.
 func deriveKey(p agileParams, salt, passwordUTF16 []byte, spinCount int, blockKey []byte) ([]byte, error) {
+	spun, err := spinPassword(p, salt, passwordUTF16, spinCount)
+	if err != nil {
+		return nil, err
+	}
+	return keyFromSpun(p, spun, blockKey), nil
+}
+
+// spinPassword returns the iterated password hash Hn shared by every block key.
+// It is the whole cost of a key derivation: spinCount hash invocations, a
+// million at the ceiling.
+func spinPassword(p agileParams, salt, passwordUTF16 []byte, spinCount int) ([]byte, error) {
 	// Defense in depth: agileDecrypt bounds spinCount before calling in, but
 	// guard here too so no caller can drive an unbounded derivation loop.
 	if spinCount < 0 || spinCount > maxSpinCount {
@@ -873,9 +881,14 @@ func deriveKey(p agileParams, salt, passwordUTF16 []byte, spinCount int, blockKe
 		h.Write(digest)
 		digest = h.Sum(digest[:0])
 	}
+	return digest, nil
+}
 
-	h.Reset()
-	h.Write(digest)
+// keyFromSpun finishes a derivation: hash(Hn‖blockKey), truncated or
+// 0x36-padded to the key length.
+func keyFromSpun(p agileParams, spun, blockKey []byte) []byte {
+	h := p.newHash()
+	h.Write(spun)
 	h.Write(blockKey)
 	final := h.Sum(nil)
 
@@ -884,7 +897,7 @@ func deriveKey(p agileParams, salt, passwordUTF16 []byte, spinCount int, blockKe
 	for ; n < p.keyBytes; n++ {
 		key[n] = 0x36
 	}
-	return key, nil
+	return key
 }
 
 // ivFromSalt derives a per-block IV: hash(salt‖blockKey) truncated to the block

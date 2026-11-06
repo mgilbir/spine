@@ -270,7 +270,10 @@ type xmlSignatureTime struct {
 // Verification is against the certificate each signature embeds; it does not
 // establish trust in that certificate. See SignatureInfo.Valid.
 func (r *Reader) VerifySignatures() ([]SignatureInfo, error) {
-	sigParts := r.signaturePartNames()
+	sigParts, err := r.signaturePartNames()
+	if err != nil {
+		return nil, err
+	}
 	if len(sigParts) == 0 {
 		return nil, nil
 	}
@@ -287,7 +290,11 @@ func (r *Reader) VerifySignatures() ([]SignatureInfo, error) {
 
 // signaturePartNames discovers signature parts, preferring the origin
 // relationship chain and falling back to scanning the _xmlsignatures folder.
-func (r *Reader) signaturePartNames() []string {
+// An origin relationships part that is malformed is skipped (the folder scan
+// still runs), but one that is present and cannot be read is an error: the
+// signatures it names may live outside the folder, and silently reporting
+// fewer signatures than the package carries is not a verification result.
+func (r *Reader) signaturePartNames() ([]string, error) {
 	seen := make(map[string]bool)
 	var names []string
 	add := func(n string) {
@@ -303,7 +310,15 @@ func (r *Reader) signaturePartNames() []string {
 
 	for _, rel := range r.GetRelationshipsByType(RelTypeDigitalSignatureOrigin) {
 		origin := ResolvePartName("/", rel.Target)
-		originRels, err := r.GetPartRelationships(origin)
+		relsFile := r.GetFile(GetRelationshipsPartName(origin))
+		if relsFile == nil {
+			continue
+		}
+		data, err := relsFile.ReadAll()
+		if err != nil {
+			return nil, fmt.Errorf("opc: reading signature origin relationships %s: %w", relsFile.Name, err)
+		}
+		originRels, err := UnmarshalRelationships(data)
 		if err != nil {
 			continue
 		}
@@ -325,7 +340,7 @@ func (r *Reader) signaturePartNames() []string {
 		}
 	}
 	sort.Strings(names)
-	return names
+	return names, nil
 }
 
 func (r *Reader) verifySignaturePart(partName string) (SignatureInfo, error) {

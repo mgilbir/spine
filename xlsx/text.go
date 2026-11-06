@@ -12,14 +12,11 @@ import (
 func (w *Workbook) Text() string {
 	var sb strings.Builder
 	for _, s := range w.Sheets() {
-		t := s.Text()
-		if t == "" {
-			continue
-		}
+		sep := ""
 		if sb.Len() > 0 {
-			sb.WriteString("\n\n")
+			sep = "\n\n"
 		}
-		sb.WriteString(t)
+		s.writeText(&sheetText{sb: &sb, sep: sep})
 	}
 	return sb.String()
 }
@@ -36,53 +33,107 @@ func (w *Workbook) Text() string {
 //
 // Cell comments (legacy notes and threaded comments, including replies) follow
 // the grid, one per line, ordered by their anchoring cell.
+//
+// Because a cell is positioned at its column, a row holding one cell in
+// column XFD is 16383 tabs long: the text of a sparse sheet can be far larger
+// than the file it came from.
 func (s *Sheet) Text() string {
 	var sb strings.Builder
+	s.writeText(&sheetText{sb: &sb})
+	return sb.String()
+}
 
-	if s.ws() != nil {
-		type rowLine struct {
-			num  uint32
+// sheetText writes one sheet's lines into a builder that may already hold
+// earlier sheets. sep goes in front of the sheet's first byte, so a sheet that
+// writes nothing leaves the builder untouched.
+type sheetText struct {
+	sb      *strings.Builder
+	sep     string
+	written bool
+}
+
+// appendLine appends text as its own line of the sheet, separated from the
+// sheet's earlier content by "\n". Like the strings.Builder it replaces, an
+// empty line before any content writes nothing.
+func (t *sheetText) appendLine(text []byte) {
+	// Grow by doubling. Appending lets a large builder grow by about a
+	// quarter each time, and the copies then cost several times the result.
+	if need := len(t.sep) + 1 + len(text); t.sb.Cap()-t.sb.Len() < need {
+		t.sb.Grow(max(need, t.sb.Len()))
+	}
+	if t.written {
+		t.sb.WriteByte('\n')
+	} else {
+		if len(text) == 0 {
+			return
+		}
+		t.sb.WriteString(t.sep)
+		t.written = true
+	}
+	t.sb.Write(text)
+}
+
+// writeText writes the sheet's grid and comments.
+//
+// Each row is built straight into one reused line buffer and copied once into
+// the output. It once filled a []string as wide as the row's last column, joined
+// it, and kept every joined line until the rows were sorted, then Workbook.Text
+// copied each sheet again: a sheet of 20000 rows with one cell each in column
+// XFD, 100 KB zipped, allocated 7.4 GB to return 328 MB of text (C616).
+func (s *Sheet) writeText(out *sheetText) {
+	if ws := s.ws(); ws != nil {
+		type rowRef struct {
+			num uint32
+			idx int
+		}
+		rows := make([]rowRef, 0, len(ws.SheetData.Row))
+		for i := range ws.SheetData.Row {
+			r := &ws.SheetData.Row[i]
+			if rn, ok := rowNumberOf(r); ok && len(r.C) > 0 {
+				rows = append(rows, rowRef{num: rn, idx: i})
+			}
+		}
+		sort.SliceStable(rows, func(i, j int) bool { return rows[i].num < rows[j].num })
+
+		type field struct {
+			col  int
 			text string
 		}
-		var lines []rowLine
-		for i := range s.ws().SheetData.Row {
-			r := &s.ws().SheetData.Row[i]
-			rn, ok := rowNumberOf(r)
-			if !ok || len(r.C) == 0 {
+		var (
+			fields []field
+			line   []byte
+		)
+		for _, rr := range rows {
+			fields = fields[:0]
+			for _, c := range ws.SheetData.Row[rr.idx].C {
+				if _, col, ok := c.RowCol(); ok {
+					fields = append(fields, field{col: col, text: (&Cell{sheet: s, cell: c}).String()})
+				}
+			}
+			if len(fields) == 0 {
 				continue
 			}
-			maxCol := 0
-			cols := make(map[int]string, len(r.C))
-			for _, c := range r.C {
-				_, col, ok := c.RowCol()
-				if !ok {
+			// Two cells naming the same column: the later one wins, as it
+			// did when the row was collected into a map.
+			sort.SliceStable(fields, func(i, j int) bool { return fields[i].col < fields[j].col })
+			line = line[:0]
+			at := 1
+			for i, f := range fields {
+				if i+1 < len(fields) && fields[i+1].col == f.col {
 					continue
 				}
-				cols[col] = (&Cell{sheet: s, cell: c}).String()
-				if col > maxCol {
-					maxCol = col
+				for ; at < f.col; at++ {
+					line = append(line, '\t')
 				}
+				line = append(line, f.text...)
 			}
-			if maxCol == 0 {
-				continue
-			}
-			fields := make([]string, maxCol)
-			for col, v := range cols {
-				fields[col-1] = v
-			}
-			lines = append(lines, rowLine{num: rn, text: strings.Join(fields, "\t")})
-		}
-		sort.SliceStable(lines, func(i, j int) bool { return lines[i].num < lines[j].num })
-		for _, ln := range lines {
-			appendLine(&sb, ln.text)
+			out.appendLine(line)
 		}
 	}
 
 	for _, cmt := range s.sortedComments() {
-		writeCommentText(&sb, cmt)
+		writeCommentText(out, cmt)
 	}
-
-	return sb.String()
 }
 
 // sortedComments returns the sheet's top-level comments ordered by anchoring
@@ -104,19 +155,11 @@ func (s *Sheet) sortedComments() []*Comment {
 }
 
 // writeCommentText appends a comment's text and, recursively, its replies.
-func writeCommentText(sb *strings.Builder, c *Comment) {
+func writeCommentText(out *sheetText, c *Comment) {
 	if t := c.Text(); t != "" {
-		appendLine(sb, t)
+		out.appendLine([]byte(t))
 	}
 	for _, reply := range c.Replies() {
-		writeCommentText(sb, reply)
+		writeCommentText(out, reply)
 	}
-}
-
-// appendLine appends s as its own line, separated from prior content by "\n".
-func appendLine(sb *strings.Builder, s string) {
-	if sb.Len() > 0 {
-		sb.WriteByte('\n')
-	}
-	sb.WriteString(s)
 }

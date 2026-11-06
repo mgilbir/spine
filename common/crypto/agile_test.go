@@ -232,3 +232,49 @@ func TestPasswordToUTF16LE(t *testing.T) {
 		t.Fatalf("encoded %d bytes for a %d-character password, want %d", n, len(long), 2*len(long))
 	}
 }
+
+// TestAgileDecryptSpinsOnce confirms an agile open runs the password spin once,
+// not once per block key. The spin is the whole cost of a derivation and does
+// not depend on the block key, but each of the three keys re-ran it: a wrong
+// password cost two full spins and a right one three (C617). The test compares
+// a wrong-password Decrypt with one bare spin at the same spinCount, so it
+// measures a ratio, not a machine-dependent duration; the best of three runs
+// keeps a scheduling hiccup from deciding it.
+func TestAgileDecryptSpinsOnce(t *testing.T) {
+	info, enc, err := Encrypt([]byte("secret"), "pw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slow := bytes.Replace(info, []byte(`spinCount="100000"`), []byte(`spinCount="1000000"`), 1)
+	if bytes.Equal(slow, info) {
+		t.Fatal("failed to rewrite spinCount in descriptor")
+	}
+	p, err := validateCommon("AES", "ChainingModeCBC", "SHA512", 256, 16, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	best := func(fn func()) time.Duration {
+		var b time.Duration
+		for i := range 3 {
+			start := time.Now()
+			fn()
+			if d := time.Since(start); i == 0 || d < b {
+				b = d
+			}
+		}
+		return b
+	}
+	spin := best(func() {
+		if _, err := spinPassword(p, make([]byte, 16), passwordToUTF16LE("wrong"), 1000000); err != nil {
+			t.Fatal(err)
+		}
+	})
+	open := best(func() {
+		if _, err := Decrypt(slow, enc, "wrong"); !errors.Is(err, ErrWrongPassword) {
+			t.Fatalf("Decrypt: got %v, want ErrWrongPassword", err)
+		}
+	})
+	if ratio := float64(open) / float64(spin); ratio > 1.5 {
+		t.Fatalf("wrong-password Decrypt took %.2fx one spin (%v vs %v); want about 1x", ratio, open, spin)
+	}
+}
