@@ -1865,6 +1865,10 @@ func (s *Slide) Duplicate() *Slide {
 		newSlide.sxModel = newSlideXML()
 		newSlide.sxParsed = true
 	}
+	// A source whose bytes could not be re-read copied nothing; the duplicate
+	// inherits that failure so it cannot be saved as a blank slide either (for
+	// instance after the original is removed).
+	newSlide.sxReadErr = s.sxReadErr
 	newSlide.materializeShapes()
 
 	// Move to position after original

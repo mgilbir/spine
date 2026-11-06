@@ -109,11 +109,22 @@ func TestSave_SlideUnreadableAfterOpenFailsSave(t *testing.T) {
 	pkg := unreadableFixture(t)
 	cases := []struct {
 		name  string
-		touch func(*pptx.Slide)
+		touch func(*pptx.Presentation, *pptx.Slide)
 	}{
-		{"untouched", func(*pptx.Slide) {}},
-		{"read", func(s *pptx.Slide) { _ = s.Shapes() }},
-		{"edited", func(s *pptx.Slide) { s.SetName("renamed") }},
+		{"untouched", func(*pptx.Presentation, *pptx.Slide) {}},
+		{"read", func(_ *pptx.Presentation, s *pptx.Slide) { _ = s.Shapes() }},
+		{"edited", func(_ *pptx.Presentation, s *pptx.Slide) { s.SetName("renamed") }},
+		// The duplicate copies nothing from an unreadable source; with the
+		// original removed, only the duplicate's own error stands between the
+		// save and a blank slide.
+		{"duplicated-then-original-removed", func(p *pptx.Presentation, s *pptx.Slide) {
+			if s.Duplicate() == nil {
+				t.Fatal("Duplicate returned nil")
+			}
+			if err := p.RemoveSlide(0); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,7 +134,7 @@ func TestSave_SlideUnreadableAfterOpenFailsSave(t *testing.T) {
 				t.Fatal(err)
 			}
 			src.Fail()
-			tc.touch(p.Slides()[0])
+			tc.touch(p, p.Slides()[0])
 			out, err := p.SaveBytes()
 			if err == nil {
 				t.Fatalf("save succeeded (%d bytes) after the slide became unreadable: "+
