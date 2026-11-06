@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
+	"unicode/utf16"
 
 	"github.com/mgilbir/spine/common/dml"
 	coxml "github.com/mgilbir/spine/common/oxml"
@@ -1539,14 +1539,22 @@ func (w *Workbook) nextSheetID() uint32 {
 // forbiddenSheetNameChars are the characters Excel disallows in a sheet name.
 const forbiddenSheetNameChars = `\/?*[]:`
 
+// maxSheetNameUnits is Excel's sheet name limit. It counts UTF-16 code units,
+// not characters: [MS-XLS] §2.4.28 bounds the name's cch, the length of a
+// UTF-16 string, to 31. A character outside the Basic Multilingual Plane, such
+// as an emoji, takes two, so 16 of them are too long though they are 16 runes.
+const maxSheetNameUnits = 31
+
 // ValidateSheetName reports whether name is a legal Excel sheet name: non-empty,
 // at most 31 characters, containing none of \ / ? * [ ] :, and not beginning or
-// ending with an apostrophe. It does not check uniqueness within a workbook.
+// ending with an apostrophe. Characters are counted as Excel counts them, in
+// UTF-16 code units, so an emoji counts as two. It does not check uniqueness
+// within a workbook.
 func ValidateSheetName(name string) error {
 	if name == "" {
 		return fmt.Errorf("xlsx: sheet name must not be empty")
 	}
-	if utf8.RuneCountInString(name) > 31 {
+	if utf16Len(name) > maxSheetNameUnits {
 		return fmt.Errorf("xlsx: sheet name %q exceeds 31 characters", name)
 	}
 	if strings.ContainsAny(name, forbiddenSheetNameChars) {
@@ -1589,14 +1597,14 @@ func (w *Workbook) sanitizeSheetName(name string) string {
 	if name == "" {
 		name = "Sheet"
 	}
-	name = truncateRunes(name, 31)
+	name = truncateUTF16(name, maxSheetNameUnits)
 	if !w.sheetNameExists(name) {
 		return name
 	}
 	base := name
 	for i := 2; ; i++ {
 		suffix := fmt.Sprintf(" (%d)", i)
-		cand := truncateRunes(base, 31-utf8.RuneCountInString(suffix)) + suffix
+		cand := truncateUTF16(base, maxSheetNameUnits-utf16Len(suffix)) + suffix
 		if !w.sheetNameExists(cand) {
 			return cand
 		}
@@ -1609,15 +1617,27 @@ func (w *Workbook) sheetNameExists(name string) bool {
 	return w.sheetNameSetFor().names[foldKey(name)]
 }
 
-// truncateRunes returns s limited to at most n runes.
-func truncateRunes(s string, n int) string {
-	if n <= 0 {
-		return ""
+// utf16Len returns the length of s in UTF-16 code units, the unit Excel counts
+// a sheet name in.
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16.RuneLen(r)
 	}
-	if utf8.RuneCountInString(s) <= n {
-		return s
+	return n
+}
+
+// truncateUTF16 returns the longest prefix of s that fits in n UTF-16 code
+// units. It cuts between characters, never inside a surrogate pair.
+func truncateUTF16(s string, n int) string {
+	units := 0
+	for i, r := range s {
+		units += utf16.RuneLen(r)
+		if units > n {
+			return s[:i]
+		}
 	}
-	return string([]rune(s)[:n])
+	return s
 }
 
 // RemoveSheet removes the sheet at the specified index. It is the primary

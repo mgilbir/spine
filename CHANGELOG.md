@@ -156,6 +156,11 @@
   for each of three, so a wrong password cost two spins and a right one three.
   A file at the ceiling now fails a wrong password in about half the time and
   opens in about a third (C617).
+- xlsx: the 31-character sheet name limit counts UTF-16 code units, as Excel
+  does ([MS-XLS] §2.4.28). It counted characters, so `ValidateSheetName`,
+  `AddSheet` and `SetName` accepted a name of 16 emoji (32 units) that Excel
+  rejects, and `UniqueSheetName` could return one. `UniqueSheetName` now trims
+  to 31 units without splitting a character (C618).
 
 ### Changed
 
