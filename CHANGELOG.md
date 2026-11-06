@@ -150,6 +150,12 @@
   text; they now allocate 595 MB in 0.8 s. The text is unchanged: a cell is
   still placed at its column, so a sparse sheet's text can be far larger than
   its file (C616).
+- crypto: opening an agile-encrypted file runs the password spin once, not
+  once per derived key. The spin (`spinCount` hashes, 100000 from Office and
+  up to 1000000 accepted) does not depend on the key being derived, but it ran
+  for each of three, so a wrong password cost two spins and a right one three.
+  A file at the ceiling now fails a wrong password in about half the time and
+  opens in about a third (C617).
 
 ### Changed
 
