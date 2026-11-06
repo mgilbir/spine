@@ -1,6 +1,7 @@
 package xlsx
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
@@ -110,5 +111,40 @@ func TestMergeBoundsSeesUnmergeAndDirectChange(t *testing.T) {
 	}
 	if err := sh.MergeCells("A1", "B2"); err != nil {
 		t.Errorf("re-merging an unmerged range failed: %v", err)
+	}
+}
+
+// TestUnmergeCellsMatchesStoredForms confirms UnmergeCells removes a merge
+// whatever spelling the file stored it in. It compared the stored text with
+// the normalized "A1:B2", so a merge written reversed or as a single cell could
+// not be removed, and it still blocked a new merge over the
+// same cells (C615).
+func TestUnmergeCellsMatchesStoredForms(t *testing.T) {
+	for _, tc := range []struct{ stored, start, end string }{
+		{"B2:A1", "A1", "B2"},
+		{"A2:B1", "A1", "B2"},
+		{"a1:b2", "A1", "B2"},
+		{"C3", "C3", "C3"},
+		{"C3:C3", "C3", "C3"},
+	} {
+		t.Run(tc.stored, func(t *testing.T) {
+			sheet := `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData/>` +
+				`<mergeCells count="2"><mergeCell ref="E5:F6"/><mergeCell ref="` + tc.stored + `"/></mergeCells></worksheet>`
+			data := buildMutatorTestXlsx(t, sheet)
+			w, err := OpenReader(bytes.NewReader(data), int64(len(data)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			sh := w.Sheets()[0]
+			if err := sh.UnmergeCells(tc.start, tc.end); err != nil {
+				t.Fatal(err)
+			}
+			if got := sh.MergedCells(); len(got) != 1 || got[0] != "E5:F6" {
+				t.Fatalf("after unmerge: %v, want [E5:F6]", got)
+			}
+			if err := sh.MergeCells(tc.start, tc.end); err != nil {
+				t.Errorf("re-merging the freed range: %v", err)
+			}
+		})
 	}
 }

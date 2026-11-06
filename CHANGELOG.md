@@ -138,6 +138,10 @@
   `<v>+2</v>` read as string 2 through `String` alone. White space around the
   index and a leading plus sign are now accepted everywhere; anything else,
   including an index past 2^31, reads as an empty cell everywhere (C614).
+- xlsx: `UnmergeCells` removes a merge the file stored reversed (`B2:A1`) or as
+  a single cell (`A1`). It compared the stored text with the normalized
+  `A1:B2`, so such a merge could not be removed and still blocked a new merge
+  over the same cells (C615).
 
 ### Changed
 

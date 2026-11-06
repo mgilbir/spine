@@ -638,10 +638,13 @@ func (s *Sheet) UnmergeCells(startRef, endRef string) error {
 	if err != nil {
 		return err
 	}
-	ref := rng.ref()
 
+	// Compare parsed ranges, not text: a merge written by another producer
+	// may be stored reversed ("B2:A1") or as a single cell ("A1" for A1:A1),
+	// and a text comparison against the normalized "A1:B2" could never
+	// remove it.
 	for i, mc := range s.ws().MergeCells.MergeCell {
-		if strings.EqualFold(mc.Ref, ref) {
+		if existing, err := parseCellRangeRef(mc.Ref); err == nil && existing == rng {
 			s.markDirty()
 			s.ws().MergeCells.MergeCell = append(
 				s.ws().MergeCells.MergeCell[:i],
