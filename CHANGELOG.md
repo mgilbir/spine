@@ -142,6 +142,14 @@
   a single cell (`A1`). It compared the stored text with the normalized
   `A1:B2`, so such a merge could not be removed and still blocked a new merge
   over the same cells (C615).
+- xlsx: `Sheet.Text` and `Workbook.Text` allocate about twice the text they
+  return, not twenty-four times. Each row filled a slice as wide as its last
+  column, every joined row was held until the rows were sorted, and
+  `Workbook.Text` copied each sheet again, so 20000 rows with one cell each in
+  column XFD (a 100 KB file) allocated 7.4 GB in 3.4 s to return 328 MB of
+  text; they now allocate 595 MB in 0.8 s. The text is unchanged: a cell is
+  still placed at its column, so a sparse sheet's text can be far larger than
+  its file (C616).
 
 ### Changed
 
