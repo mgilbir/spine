@@ -112,6 +112,21 @@
   entries across the local corpus. An edit box (`ObjectType="Edit"`) was
   looked up as `EditBox` and reported as unknown; it is now
   `FormControlEditBox`. A type outside the schema still reads as unknown.
+- opc, docx, pptx, xlsx: an open fails when a part is in the package but cannot
+  be read — a corrupt entry, or one declaring more bytes than the
+  decompression limit allows. Most such parts were skipped as if absent, and
+  the next save dropped them: an unreadable `docProps/core.xml` opened cleanly
+  in every format, as did a docx's `word/_rels/document.xml.rels` and a deck's
+  theme, `presProps.xml` or slide-layout relationships, and the saved package
+  lacked the part. An unreadable `xl/_rels/workbook.xml.rels` was reported as
+  a sheet referencing a relationship "which does not exist". A part that is
+  genuinely missing is still tolerated where it was before. The error names
+  the part and wraps the cause, and every decompression-limit error now
+  matches the new `opc.ErrDecompressionLimit`. A docx body or pptx slide that
+  is re-read from the source after open, and cannot be by then, fails the
+  save instead of being written empty (docx panicked; pptx wrote a blank
+  slide). `VerifySignatures` returns an error for an unreadable signature
+  origin relationships part rather than reporting fewer signatures.
 
 ### Changed
 
