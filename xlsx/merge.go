@@ -6,7 +6,6 @@ import (
 	"errors"
 	xmlb "github.com/mgilbir/spine/common/xml"
 	"path"
-	"strconv"
 	"strings"
 
 	"github.com/mgilbir/spine/xlsx/internal/oxml"
@@ -294,11 +293,7 @@ func copyCellValue(dstWB, srcWB *Workbook, sc *oxml.CT_Cell, dc *Cell) error {
 	case sc.Type() == "s":
 		// Shared string: resolve against the source table and store inline so
 		// the destination does not depend on the source's string table.
-		if sc.V != nil {
-			idx, err := strconv.Atoi(strings.TrimSpace(*sc.V))
-			if err != nil {
-				return nil
-			}
+		if idx, ok := sc.SharedStringIndex(); ok {
 			dc.SetString(srcWB.resolveSharedString(idx))
 		}
 	default:

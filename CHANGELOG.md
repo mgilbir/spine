@@ -128,6 +128,16 @@
   `AppendSheetsFrom` panicked on a file carrying one, and `CellStyleAt` on a
   caller passing one; a theme line or effect style reference did the same in
   the slide renderer (C613).
+- xlsx: every reader of a shared-string cell parses its index the same way.
+  `String`, `RichText` (and `ReplaceText` through it), the copy made by
+  `CopySheetFrom` and `AppendSheetsFrom`, and the renderer each parsed it
+  differently. `RichText` used a digit loop with no overflow check, so
+  `<v>18446744073709551618</v>` read as empty through `String` but as shared
+  string 2 through `RichText`, and `ReplaceText` then wrote that string's edited
+  text into the cell. `<v> 2</v>` read as empty but was copied as string 2, and
+  `<v>+2</v>` read as string 2 through `String` alone. White space around the
+  index and a leading plus sign are now accepted everywhere; anything else,
+  including an index past 2^31, reads as an empty cell everywhere (C614).
 
 ### Changed
 

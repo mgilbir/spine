@@ -211,9 +211,8 @@ func (c *Cell) String() string {
 	switch c.cell.Type() {
 	case "s":
 		// Shared string: V contains the index
-		if c.cell.V != nil && c.sheet != nil && c.sheet.workbook != nil {
-			idx, err := strconv.Atoi(*c.cell.V)
-			if err == nil {
+		if c.sheet != nil && c.sheet.workbook != nil {
+			if idx, ok := c.cell.SharedStringIndex(); ok {
 				return c.sheet.workbook.resolveSharedString(idx)
 			}
 		}

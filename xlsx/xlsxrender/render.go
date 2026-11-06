@@ -377,8 +377,8 @@ func renderCellText(s *view.Sheet, c *oxml.CT_Cell) (string, string, error) {
 		if c.V == nil {
 			return "", "", render.ErrInvalid
 		}
-		idx, e := strconv.ParseUint(*c.V, 10, 32)
-		if e != nil || s.SharedStrings == nil || idx >= uint64(len(s.SharedStrings.Si)) {
+		idx, ok := c.SharedStringIndex()
+		if !ok || s.SharedStrings == nil || idx >= len(s.SharedStrings.Si) {
 			return "", "", fmt.Errorf("%w: shared string index", render.ErrInvalid)
 		}
 		text, e := plain(&s.SharedStrings.Si[idx])

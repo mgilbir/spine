@@ -1177,6 +1177,28 @@ func (c *CT_Cell) SetType(v string) {
 	}
 }
 
+// SharedStringIndex parses the value of a t="s" cell as an index into the
+// shared string table. ok is false when there is no value or it is not a
+// decimal index in 0..MaxInt32, so the result is a valid int on every platform
+// and a caller only has to compare it with the table length. XML white space
+// around the digits and a leading plus sign, both of which an xsd:int allows,
+// are accepted. Every reader of a shared-string cell goes
+// through here: they once parsed the value three different ways, so one cell
+// could read as empty through String, as another entry's text through
+// RichText (a hand-rolled digit loop that wrapped around past 2^64), and as a
+// third value when copied to another workbook.
+func (c *CT_Cell) SharedStringIndex() (int, bool) {
+	if c.V == nil {
+		return 0, false
+	}
+	v := strings.TrimPrefix(strings.Trim(*c.V, " \t\r\n"), "+")
+	n, err := strconv.ParseUint(v, 10, 31)
+	if err != nil {
+		return 0, false
+	}
+	return int(n), true
+}
+
 // StyleIndex returns the cell's style index and whether one is set.
 func (c *CT_Cell) StyleIndex() (uint32, bool) { return c.s, c.sSet }
 
