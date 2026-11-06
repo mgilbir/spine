@@ -367,7 +367,7 @@ func (sm *StyleManager) NamedStyles() []NamedStyle {
 			b := *cs.BuiltinId
 			ns.BuiltinId = &b
 		}
-		if ss.CellStyleXfs != nil && int(cs.XfId) < len(ss.CellStyleXfs.Xf) {
+		if ss.CellStyleXfs != nil && uint64(cs.XfId) < uint64(len(ss.CellStyleXfs.Xf)) {
 			ns.Style = sm.cellStyleFromXf(&ss.CellStyleXfs.Xf[cs.XfId])
 		}
 		result = append(result, ns)
@@ -387,7 +387,7 @@ func (sm *StyleManager) ApplyNamedStyle(name string) (uint32, error) {
 
 	// A cellStyle whose xfId points past (or into an absent) cellStyleXfs is
 	// malformed but occurs in the wild; report it rather than panic (C544).
-	if ss.CellStyleXfs == nil || int(xfID) >= len(ss.CellStyleXfs.Xf) {
+	if ss.CellStyleXfs == nil || uint64(xfID) >= uint64(len(ss.CellStyleXfs.Xf)) {
 		return 0, fmt.Errorf("xlsx: named style %q references cellStyleXfs index %d, which does not exist", name, xfID)
 	}
 	master := &ss.CellStyleXfs.Xf[xfID]
@@ -427,13 +427,13 @@ func (sm *StyleManager) ApplyNamedStyle(name string) (uint32, error) {
 func (sm *StyleManager) cellStyleFromXf(xf *oxml.CT_Xf) CellStyle {
 	ss := sm.stylesheet
 	var style CellStyle
-	if xf.FontId != nil && ss.Fonts != nil && int(*xf.FontId) < len(ss.Fonts.Font) {
+	if xf.FontId != nil && ss.Fonts != nil && uint64(*xf.FontId) < uint64(len(ss.Fonts.Font)) {
 		style.Font = oxmlToFontStyle(&ss.Fonts.Font[*xf.FontId])
 	}
-	if xf.FillId != nil && ss.Fills != nil && int(*xf.FillId) < len(ss.Fills.Fill) {
+	if xf.FillId != nil && ss.Fills != nil && uint64(*xf.FillId) < uint64(len(ss.Fills.Fill)) {
 		style.Fill = oxmlToFillStyle(&ss.Fills.Fill[*xf.FillId])
 	}
-	if xf.BorderId != nil && ss.Borders != nil && int(*xf.BorderId) < len(ss.Borders.Border) {
+	if xf.BorderId != nil && ss.Borders != nil && uint64(*xf.BorderId) < uint64(len(ss.Borders.Border)) {
 		style.Border = oxmlToBorderStyle(&ss.Borders.Border[*xf.BorderId])
 	}
 	if xf.NumFmtId != nil && *xf.NumFmtId != 0 {
@@ -505,7 +505,7 @@ func (sm *StyleManager) CellStyleAt(index uint32) (CellStyle, error) {
 func (sm *StyleManager) GetCellStyle(index uint32) (CellStyle, error) {
 	ss := sm.stylesheet
 
-	if ss.CellXfs == nil || int(index) >= len(ss.CellXfs.Xf) {
+	if ss.CellXfs == nil || uint64(index) >= uint64(len(ss.CellXfs.Xf)) {
 		return CellStyle{}, fmt.Errorf("xlsx: style index %d out of range", index)
 	}
 
@@ -1261,7 +1261,7 @@ func (sm *StyleManager) importXf(src *StyleManager, srcIdx uint32) (uint32, erro
 		return 0, fmt.Errorf("xlsx: source workbook has no stylesheet")
 	}
 	sss := src.stylesheet
-	if sss.CellXfs == nil || int(srcIdx) >= len(sss.CellXfs.Xf) {
+	if sss.CellXfs == nil || uint64(srcIdx) >= uint64(len(sss.CellXfs.Xf)) {
 		return 0, fmt.Errorf("xlsx: style index %d out of range", srcIdx)
 	}
 	srcXf := &sss.CellXfs.Xf[srcIdx]
@@ -1284,19 +1284,19 @@ func (sm *StyleManager) importXf(src *StyleManager, srcIdx uint32) (uint32, erro
 	}
 
 	fontID := uint32(0)
-	if srcXf.FontId != nil && sss.Fonts != nil && int(*srcXf.FontId) < len(sss.Fonts.Font) {
+	if srcXf.FontId != nil && sss.Fonts != nil && uint64(*srcXf.FontId) < uint64(len(sss.Fonts.Font)) {
 		fontID = sm.findOrAddFont(cloneFont(&sss.Fonts.Font[*srcXf.FontId]))
 	}
 	xf.FontId = &fontID
 
 	fillID := uint32(0)
-	if srcXf.FillId != nil && sss.Fills != nil && int(*srcXf.FillId) < len(sss.Fills.Fill) {
+	if srcXf.FillId != nil && sss.Fills != nil && uint64(*srcXf.FillId) < uint64(len(sss.Fills.Fill)) {
 		fillID = sm.findOrAddFill(cloneFill(&sss.Fills.Fill[*srcXf.FillId]))
 	}
 	xf.FillId = &fillID
 
 	borderID := uint32(0)
-	if srcXf.BorderId != nil && sss.Borders != nil && int(*srcXf.BorderId) < len(sss.Borders.Border) {
+	if srcXf.BorderId != nil && sss.Borders != nil && uint64(*srcXf.BorderId) < uint64(len(sss.Borders.Border)) {
 		borderID = sm.findOrAddBorder(cloneBorder(&sss.Borders.Border[*srcXf.BorderId]))
 	}
 	xf.BorderId = &borderID

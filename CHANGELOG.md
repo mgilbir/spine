@@ -112,6 +112,22 @@
   entries across the local corpus. An edit box (`ObjectType="Edit"`) was
   looked up as `EditBox` and reported as unknown; it is now
   `FormControlEditBox`. A type outside the schema still reads as unknown.
+- opc: opening a crafted encrypted package no longer panics on a 32-bit
+  platform. The CFB reader bounded a sector number with `int(s) >= len(fat)`,
+  and on a 32-bit build `int` of a sector number at or above 2^31 is negative,
+  so the check passed and the FAT was then indexed with the unconverted value.
+  The container header is read before any password is asked for, so one
+  patched header field crashed `OpenReader` in every format. The FAT and
+  mini-FAT bounds and the mini-sector offset are now computed in 64 bits
+  (C612).
+- xlsx, pptxrender: a style index at or above 2^31 is out of range on a 32-bit
+  platform too. A cell's `s`, an xf's `fontId`, `fillId` or `borderId`, a
+  `cellStyle`'s `xfId` and a `cfRule`'s `dxfId` were bounded with the same
+  `int(idx) < len(...)` form, so on a 32-bit build `CellStyleAt`,
+  `NamedStyles`, `ApplyNamedStyle`, `DifferentialFormat`, `CopySheetFrom` and
+  `AppendSheetsFrom` panicked on a file carrying one, and `CellStyleAt` on a
+  caller passing one; a theme line or effect style reference did the same in
+  the slide renderer (C613).
 
 ### Changed
 

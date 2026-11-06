@@ -122,3 +122,29 @@ func TestRenderHairline(t *testing.T) {
 		t.Fatalf("hairline: %+v", px)
 	}
 }
+
+// TestRenderStyleRefIndexAbove2p31 confirms a line or effect style reference
+// whose idx has the top bit set is reported as invalid, not indexed. The bound
+// was once int(r.Idx) > len(list): on a 32-bit platform int(0xFFFFFFFF) is -1,
+// so the check passed and list[r.Idx-1] panicked. Only a 32-bit build (CI's
+// GOARCH=386 job) can fail this test.
+func TestRenderStyleRefIndexAbove2p31(t *testing.T) {
+	data, opts := renderInheritedText(t)
+	connector := func(xml string) map[string]func(string) string {
+		return map[string]func(string) string{"ppt/slides/slide1.xml": func(s string) string {
+			s = renderAnyTxBody.ReplaceAllLiteralString(s, "")
+			return strings.Replace(s, `</p:spTree>`, xml+`</p:spTree>`, 1)
+		}}
+	}
+	for _, idx := range []string{"2147483648", "4294967295"} {
+		for name, style := range map[string]string{
+			"lnRef":     strings.Replace(renderLnStyle, `<a:lnRef idx="3">`, `<a:lnRef idx="`+idx+`">`, 1),
+			"effectRef": strings.Replace(renderLnStyle, `<a:effectRef idx="0">`, `<a:effectRef idx="`+idx+`">`, 1),
+		} {
+			xml := renderConnectorXML("", renderAcross, `<a:ln/>`, style)
+			if _, err := renderRewrittenPNG(t, data, opts, connector(xml)); !errors.Is(err, render.ErrInvalid) {
+				t.Errorf("%s idx=%s: got %v, want ErrInvalid", name, idx, err)
+			}
+		}
+	}
+}

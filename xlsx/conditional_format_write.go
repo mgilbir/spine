@@ -506,7 +506,7 @@ func (w *Workbook) allocateDxf(d oxml.CT_Dxf) uint32 {
 // dxfStyle resolves a dxf index into a DifferentialStyle, or nil when the index
 // is out of range or the dxf carries no font/fill/border.
 func (w *Workbook) dxfStyle(idx uint32) *DifferentialStyle {
-	if w.stylesheet == nil || w.stylesheet.Dxfs == nil || int(idx) >= len(w.stylesheet.Dxfs.Dxf) {
+	if w.stylesheet == nil || w.stylesheet.Dxfs == nil || uint64(idx) >= uint64(len(w.stylesheet.Dxfs.Dxf)) {
 		return nil
 	}
 	return dxfToDiffStyle(&w.stylesheet.Dxfs.Dxf[idx])

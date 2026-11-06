@@ -150,7 +150,7 @@ func renderStyledLine(st *dml.Style, own *dml.Ln, colors *renderColors) (*dml.Ln
 			if theme.ThemeElements != nil && theme.ThemeElements.FmtScheme != nil {
 				list = theme.ThemeElements.FmtScheme.LnStyleLst
 			}
-			if list == nil || int(r.Idx) > len(list.Ln) || list.Ln[r.Idx-1] == nil {
+			if list == nil || uint64(r.Idx) > uint64(len(list.Ln)) || list.Ln[r.Idx-1] == nil {
 				return nil, nil, fmt.Errorf("%w: line style %d", render.ErrInvalid, r.Idx)
 			}
 			line = *list.Ln[r.Idx-1]

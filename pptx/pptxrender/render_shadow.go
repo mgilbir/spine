@@ -25,7 +25,7 @@ func renderStyleEffects(st *dml.Style, colors *renderColors) (*dml.EffectStyle, 
 	if theme.ThemeElements != nil && theme.ThemeElements.FmtScheme != nil {
 		list = theme.ThemeElements.FmtScheme.EffectStyleLst
 	}
-	if list == nil || int(r.Idx) > len(list.EffectStyle) || list.EffectStyle[r.Idx-1] == nil {
+	if list == nil || uint64(r.Idx) > uint64(len(list.EffectStyle)) || list.EffectStyle[r.Idx-1] == nil {
 		return nil, nil, fmt.Errorf("%w: effect style %d", render.ErrInvalid, r.Idx)
 	}
 	c, err := colors.color(renderColorOf(r.SrgbClr, r.SchemeClr, r.SysClr, r.PrstClr, r.ScrgbClr != nil, r.HslClr != nil), nil)
