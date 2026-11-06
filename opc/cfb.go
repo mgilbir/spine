@@ -247,7 +247,10 @@ func (f *cfbFile) chain(start uint32) ([]uint32, error) {
 	var out []uint32
 	seen := make(map[uint32]bool)
 	for s := start; s != cfbEndOfChain && s <= cfbMaxRegSect; {
-		if int(s) >= len(f.fat) {
+		// Compared in uint64, not int(s): on a 32-bit platform int(s) is
+		// negative for s >= 1<<31, which would pass this check and then panic
+		// on f.fat[s] with the unconverted index.
+		if uint64(s) >= uint64(len(f.fat)) {
 			return nil, fmt.Errorf("%w: CFB sector %d is out of FAT range", ErrCorruptedPackage, s)
 		}
 		if seen[s] {
@@ -382,18 +385,22 @@ func (f *cfbFile) readMiniStream(start uint32, size uint64) ([]byte, error) {
 	buf := make([]byte, 0, capHint)
 	seen := make(map[uint32]bool)
 	for s := start; s != cfbEndOfChain && s <= cfbMaxRegSect; {
-		if int(s) >= len(f.miniFAT) {
+		// uint64 for the same reason as in chain: int(s) goes negative on a
+		// 32-bit platform and would slip past the bound.
+		if uint64(s) >= uint64(len(f.miniFAT)) {
 			return nil, fmt.Errorf("%w: CFB mini sector %d is out of mini-FAT range", ErrCorruptedPackage, s)
 		}
 		if seen[s] {
 			return nil, fmt.Errorf("%w: CFB mini sector chain loops at %d", ErrCorruptedPackage, s)
 		}
 		seen[s] = true
-		off := int(s) * f.miniSectorSize
-		if off+f.miniSectorSize > len(f.miniStream) {
+		// The offset is computed in uint64: s*miniSectorSize overflows a
+		// 32-bit int once the mini-FAT has more than 1<<25 entries.
+		off := uint64(s) * uint64(f.miniSectorSize)
+		if off+uint64(f.miniSectorSize) > uint64(len(f.miniStream)) {
 			return nil, fmt.Errorf("%w: CFB mini sector %d is out of range", ErrCorruptedPackage, s)
 		}
-		buf = append(buf, f.miniStream[off:off+f.miniSectorSize]...)
+		buf = append(buf, f.miniStream[off:off+uint64(f.miniSectorSize)]...)
 		s = f.miniFAT[s]
 	}
 	if size > uint64(len(buf)) {

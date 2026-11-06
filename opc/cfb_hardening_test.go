@@ -217,3 +217,52 @@ func TestReadCFBBoundsDIFATChainAllocation(t *testing.T) {
 		t.Fatalf("allocated %d bytes for a %d-byte input (budget %d)", delta, len(data), budget)
 	}
 }
+
+// TestCFBSectorIndexAbove2p31 confirms a sector number with the top bit set is
+// rejected rather than indexed. The FAT and mini-FAT bounds were once written as
+// int(s) >= len(...): on a 32-bit platform int(0xFFFFFFF0) is -16, so the check
+// passed and f.fat[s] panicked with the unconverted index. The CFB header is read
+// before any password is asked for, so a crafted encrypted package crashed every
+// format's OpenReader. This test only fails on a 32-bit build (CI's GOARCH=386
+// job); on 64-bit the old check happened to hold.
+func TestCFBSectorIndexAbove2p31(t *testing.T) {
+	hostile := []uint32{0x80000000, 0xFFFFFFF0, cfbMaxRegSect}
+
+	t.Run("chain", func(t *testing.T) {
+		f := &cfbFile{fat: []uint32{cfbEndOfChain}}
+		for _, s := range hostile {
+			if _, err := f.chain(s); !errors.Is(err, ErrCorruptedPackage) {
+				t.Errorf("chain(%#x): got %v, want ErrCorruptedPackage", s, err)
+			}
+		}
+	})
+	t.Run("mini chain", func(t *testing.T) {
+		f := &cfbFile{miniSectorSize: 64, miniStream: make([]byte, 64), miniFAT: []uint32{cfbEndOfChain}}
+		for _, s := range hostile {
+			if _, err := f.readMiniStream(s, 64); !errors.Is(err, ErrCorruptedPackage) {
+				t.Errorf("readMiniStream(%#x): got %v, want ErrCorruptedPackage", s, err)
+			}
+		}
+	})
+	t.Run("NewReader", func(t *testing.T) {
+		var buf bytes.Buffer
+		if err := writeCFB(&buf, []cfbStream{
+			{name: cfbStreamEncryptionInfo, data: []byte("info")},
+			{name: cfbStreamEncryptedPackage, data: bytes.Repeat([]byte("x"), 5000)},
+		}); err != nil {
+			t.Fatalf("writeCFB: %v", err)
+		}
+		for _, field := range []struct {
+			name string
+			off  int
+		}{{"firstDirSector", 48}, {"firstMiniFATSector", 60}} {
+			for _, s := range hostile {
+				d := append([]byte(nil), buf.Bytes()...)
+				binary.LittleEndian.PutUint32(d[field.off:field.off+4], s)
+				if _, err := NewReader(bytes.NewReader(d), int64(len(d))); !errors.Is(err, ErrCorruptedPackage) {
+					t.Errorf("%s=%#x: got %v, want ErrCorruptedPackage", field.name, s, err)
+				}
+			}
+		}
+	})
+}
