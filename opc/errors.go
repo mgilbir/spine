@@ -1,6 +1,9 @@
 package opc
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	// ErrInvalidPartName indicates a part name that violates OPC naming rules.
@@ -34,4 +37,28 @@ var (
 	// instead; no password opens a legacy file, so ErrLegacyBinary is returned
 	// whether or not one was given.
 	ErrLegacyBinary = errors.New("opc: legacy binary Office document, not an OOXML package")
+
+	// ErrDecompressionLimit indicates a part that could not be read because it
+	// declares, or decompresses to, more bytes than the per-part or
+	// package-total decompression limit allows (see WithMaxDecompressedPartSize
+	// and WithMaxDecompressedPackageSize). The part is present in the package
+	// but unreadable under the configured limits; an open that meets one fails
+	// rather than treating the part as absent, and the error wraps this
+	// sentinel so a caller can tell the case apart and retry with a higher
+	// limit.
+	ErrDecompressionLimit = errors.New("opc: decompression limit exceeded")
 )
+
+// limitError is a decompression-limit violation. It keeps the specific,
+// actionable message (which part, which limit, which option lifts it) as its
+// text while matching ErrDecompressionLimit under errors.Is.
+type limitError struct{ msg string }
+
+func (e *limitError) Error() string { return e.msg }
+
+func (e *limitError) Is(target error) bool { return target == ErrDecompressionLimit }
+
+// limitErrorf formats a decompression-limit violation.
+func limitErrorf(format string, args ...any) error {
+	return &limitError{msg: fmt.Sprintf(format, args...)}
+}

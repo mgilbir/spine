@@ -282,22 +282,22 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 		return nil
 	}
 
-	w.loadAllRelationships()
+	if err := w.loadAllRelationships(); err != nil {
+		return err
+	}
 
 	for _, file := range w.reader.Files {
 		name := file.Name
 		data, err := file.ReadAll()
 		if err != nil {
-			// A part the model parses must not silently vanish (C60): its
-			// absence would fabricate content on the next save (an empty
-			// string table, default styles). Other unreadable parts are
-			// tolerated here — worksheets referenced from workbook.xml are
-			// checked in loadSheets, and genuinely unreferenced damaged
-			// entries only drop out of the preserved set.
-			if name == "/xl/sharedStrings.xml" || name == "/xl/styles.xml" || name == mainPartName {
-				return fmt.Errorf("xlsx: reading part %s: %w", name, err)
-			}
-			continue
+			// A part that is present but cannot be read (a corrupt entry, or
+			// one past a decompression limit) fails the open. Treating it as
+			// absent is silent data loss: a model-parsed part would be
+			// fabricated on the next save (an empty string table, default
+			// styles — C60), and any other part would simply be missing from
+			// the saved package. A part that is genuinely absent never reaches
+			// here, so that leniency is unaffected.
+			return fmt.Errorf("xlsx: reading part %s: %w", name, err)
 		}
 
 		// Preserve all parts as raw bytes for round-trip
@@ -348,10 +348,13 @@ func (w *Workbook) loadAllParts(mainPartName string) error {
 	return w.loadSheets(mainPartName)
 }
 
-// loadAllRelationships loads all relationship files into the model.
-func (w *Workbook) loadAllRelationships() {
+// loadAllRelationships loads all relationship files into the model. A
+// relationships part that cannot be read fails the open: modeled as "no
+// relationships", it surfaced as a misleading dangling-reference error (or,
+// for a part nothing checks, a save that dropped every relationship it held).
+func (w *Workbook) loadAllRelationships() error {
 	if w.reader == nil {
-		return
+		return nil
 	}
 
 	for _, file := range w.reader.Files {
@@ -361,7 +364,7 @@ func (w *Workbook) loadAllRelationships() {
 
 		data, err := file.ReadAll()
 		if err != nil {
-			continue
+			return fmt.Errorf("xlsx: reading part %s: %w", file.Name, err)
 		}
 
 		rels, err := opc.UnmarshalRelationships(data)
@@ -372,6 +375,7 @@ func (w *Workbook) loadAllRelationships() {
 		sourcePart := coxml.RelsPathToSourcePart(file.Name)
 		w.relationships[sourcePart] = rels
 	}
+	return nil
 }
 
 // loadSheets loads worksheets in the order defined by workbook.xml sheets

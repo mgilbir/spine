@@ -37,7 +37,7 @@ func TestMaxDecompressedPartSize_LimitsPartRead(t *testing.T) {
 	}
 	if _, err := f.ReadAll(); err == nil {
 		t.Fatal("expected ReadAll to reject an oversized part, got nil error")
-	} else if !strings.Contains(err.Error(), "decompression limit") {
+	} else if !isLimitError(err, "decompression limit") {
 		t.Errorf("expected a decompression-limit error, got: %v", err)
 	}
 }
@@ -127,7 +127,7 @@ func TestMaxDecompressedPackageSize_LimitsTotal(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected ReadAll to reject the part that busts the package total, got nil error")
 	}
-	if !strings.Contains(err.Error(), "package decompression limit") {
+	if !isLimitError(err, "package decompression limit") {
 		t.Errorf("expected a package-decompression-limit error, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "image1.png") {
@@ -147,7 +147,7 @@ func TestMaxDecompressedPackageSize_RejectsAtOpen(t *testing.T) {
 
 	if _, err := NewReader(bytes.NewReader(data), int64(len(data)), opts...); err == nil {
 		t.Fatal("expected NewReader to fail under a tiny package limit, got nil error")
-	} else if !strings.Contains(err.Error(), "package decompression limit") {
+	} else if !isLimitError(err, "package decompression limit") {
 		t.Errorf("expected a package-decompression-limit error, got: %v", err)
 	}
 }
@@ -255,7 +255,7 @@ func TestFileOpen_RejectsDeclaredOversizedPart(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Open to reject a declared-oversized part, got nil error")
 	}
-	if !strings.Contains(err.Error(), "per-part decompression limit") {
+	if !isLimitError(err, "per-part decompression limit") {
 		t.Errorf("expected a per-part decompression-limit error, got: %v", err)
 	}
 }
@@ -274,7 +274,7 @@ func TestBudgetedReadCloser_EnforcesPartLimitMidStream(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the stream to fail at the per-part cap, got nil error")
 	}
-	if !strings.Contains(err.Error(), "per-part decompression limit") {
+	if !isLimitError(err, "per-part decompression limit") {
 		t.Errorf("expected a per-part decompression-limit error, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "bomb.bin") {
@@ -325,7 +325,7 @@ func TestFileOpen_StreamEnforcesPackageLimit(t *testing.T) {
 
 	if _, err := io.Copy(io.Discard, b); err == nil {
 		t.Fatal("expected the second stream to fail at the package budget, got nil error")
-	} else if !strings.Contains(err.Error(), "package decompression limit") {
+	} else if !isLimitError(err, "package decompression limit") {
 		t.Errorf("expected a package-decompression-limit error, got: %v", err)
 	} else if !strings.Contains(err.Error(), "MaxDecompressedPackageSize") {
 		t.Errorf("expected the error to say how to raise the limit, got: %v", err)
@@ -366,7 +366,7 @@ func TestFileOpen_ChargesOnce(t *testing.T) {
 	// The second part's declared size no longer fits the remaining budget.
 	if _, err := reader.GetFile("/ppt/media/image1.png").Open(); err == nil {
 		t.Fatal("expected Open to reject the part that busts the package total, got nil error")
-	} else if !strings.Contains(err.Error(), "package decompression limit") {
+	} else if !isLimitError(err, "package decompression limit") {
 		t.Errorf("expected a package-decompression-limit error, got: %v", err)
 	}
 }
@@ -397,7 +397,7 @@ func TestReaderOptions_OverridesGlobalLimits(t *testing.T) {
 	}
 	if _, err := f.ReadAll(); err == nil {
 		t.Fatal("expected ReadAll to reject a part over the per-Reader limit, got nil error")
-	} else if !strings.Contains(err.Error(), "decompression limit") {
+	} else if !isLimitError(err, "decompression limit") {
 		t.Errorf("expected a decompression-limit error, got: %v", err)
 	}
 
@@ -446,7 +446,7 @@ func TestReaderOptions_PackageLimit(t *testing.T) {
 	}
 	if _, err := reader.GetFile("/p/two.xml").ReadAll(); err == nil {
 		t.Fatal("second part should exceed the per-Reader package budget")
-	} else if !strings.Contains(err.Error(), "package decompression limit") {
+	} else if !isLimitError(err, "package decompression limit") {
 		t.Errorf("expected a package-limit error, got: %v", err)
 	}
 }
