@@ -37,7 +37,14 @@ type Slide struct {
 	// already parsed — an impossible state that sx() reports by panicking
 	// rather than by silently reading the slide as empty (C568).
 	sxParseErr error
-	index      int
+	// sxReadErr records that re-reading the slide's original bytes from the
+	// still-open source failed (the source was truncated or replaced after
+	// Open). sx() then has no model to offer and materialize() substitutes an
+	// empty one so callers do not nil-deref, so the error is sticky: marshal —
+	// and with it every save and merge of this slide — refuses rather than
+	// writing that empty slide in place of the real one.
+	sxReadErr error
+	index     int
 	id         uint32
 	relID      string
 	// idExtLst preserves the extLst child of this slide's p:sldId entry in
@@ -95,7 +102,9 @@ type Slide struct {
 // part (parse-then-discard), so a lazy parse here does not re-surface the
 // malformed-slide error Open reports. Parsing never marks the slide modified,
 // so an accessed-but-unedited slide still regenerates byte-identically. Returns
-// nil only when the bytes are unavailable (a hand-built slide).
+// nil when the bytes are unavailable (a hand-built slide) or could not be
+// re-read from the source (recorded in sxReadErr, which makes any later
+// marshal of the slide fail).
 //
 // If the bytes ARE present and the re-parse fails, that is in-memory corruption
 // of bytes loadSlides already parsed successfully, and it panics with a
@@ -112,7 +121,11 @@ func (s *Slide) sx() *oxml.Slide {
 	defer s.sxMu.Unlock()
 	if s.sxModel == nil && !s.sxParsed {
 		s.sxParsed = true
-		raw := s.rawBytes()
+		raw, err := s.readRaw()
+		if err != nil {
+			s.sxReadErr = err
+			return nil
+		}
 		if raw == nil {
 			return nil
 		}
@@ -136,23 +149,27 @@ func (s *Slide) sx() *oxml.Slide {
 	return s.sxModel
 }
 
-// rawBytes returns the slide part's original bytes from the presentation's
-// still-open reader, or nil when the slide was not loaded from a package (a
-// created slide) or its part is unavailable. It is the source for both the lazy
-// parse (sx) and the save-time passthrough of an unmodified slide.
-func (s *Slide) rawBytes() []byte {
+// readRaw returns the slide part's original bytes from the presentation's
+// still-open reader. It returns (nil, nil) when the slide was not loaded from a
+// package (a created slide) or its part is not in the package, and an error
+// when the part is there but re-reading it failed. It is the source for both
+// the lazy parse (sx) and the save-time passthrough of an unmodified slide; the
+// two outcomes must stay distinct, because "no bytes" lets the save regenerate
+// the slide from its model while "unreadable bytes" must not — the model was
+// never built, so regenerating would write an empty slide.
+func (s *Slide) readRaw() ([]byte, error) {
 	if s.presentation == nil || s.presentation.reader == nil {
-		return nil
+		return nil, nil
 	}
 	f := s.presentation.reader.GetFile(s.partName)
 	if f == nil {
-		return nil
+		return nil, nil
 	}
 	raw, err := f.ReadAll()
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("pptx: re-reading slide part %s: %w", s.partName, err)
 	}
-	return raw
+	return raw, nil
 }
 
 // ensureModel returns the slide model for a mutator that is about to edit it
@@ -537,6 +554,12 @@ func (s *Slide) marshal() ([]byte, error) {
 	// materialize, not ensureModel: serializing a slide is not editing it, and
 	// ensureModel would record a model edit for every slide on every save.
 	s.materialize()
+	if s.sxReadErr != nil {
+		// The model is the empty stand-in materialize allocated for a slide
+		// whose bytes could not be read; serializing it would replace the
+		// slide with a blank one.
+		return nil, s.sxReadErr
+	}
 
 	// Reject media that cannot become a valid package part (no data, or no
 	// recognizable content type) before any of it is written.

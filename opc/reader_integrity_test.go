@@ -73,7 +73,7 @@ func TestBudgetChargesAbandonedStreamBytes(t *testing.T) {
 	}
 	if _, err := second.ReadAll(); err == nil {
 		t.Fatal("expected the second part to bust the package budget, got nil error")
-	} else if !strings.Contains(err.Error(), "package decompression limit") {
+	} else if !isLimitError(err, "package decompression limit") {
 		t.Errorf("expected a package-decompression-limit error, got: %v", err)
 	}
 }

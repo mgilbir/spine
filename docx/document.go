@@ -312,18 +312,34 @@ func (d *Document) doc() *oxml.CT_Document {
 // parsed into the model and regenerated on save, so keeping its raw bytes would
 // double the memory cost of a large document.xml), so it is re-read on demand
 // from the still-open source reader. Returns nil when the bytes are unavailable.
+// It is for read-only callers that degrade gracefully without the bytes; the
+// save path uses readRawPart, which reports a failed re-read.
 func (d *Document) rawPartData(name string) []byte {
+	data, _ := d.readRawPart(name)
+	return data
+}
+
+// readRawPart is rawPartData with the failure reported. It returns (nil, nil)
+// when the bytes are genuinely unavailable — a hand-built document, or a part
+// that is neither preserved nor the main part — and an error when the main
+// part is still in the source package but re-reading it failed (the source
+// was truncated or replaced underneath the open document). The distinction is
+// what keeps a save from regenerating the body from nothing in the second
+// case.
+func (d *Document) readRawPart(name string) ([]byte, error) {
 	if p, ok := d.preservedParts[name]; ok {
-		return p.Data
+		return p.Data, nil
 	}
 	if name == d.mainPart() && d.reader != nil {
 		if f := d.reader.GetFile(name); f != nil {
-			if data, err := f.ReadAll(); err == nil {
-				return data
+			data, err := f.ReadAll()
+			if err != nil {
+				return nil, fmt.Errorf("docx: re-reading main document part %s: %w", name, err)
 			}
+			return data, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // documentFlavors is the set of WordprocessingML main-part content types
@@ -494,17 +510,23 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		return nil
 	}
 
-	d.loadAllRelationships()
+	if err := d.loadAllRelationships(); err != nil {
+		return err
+	}
 	// The metadata parts are matched below by the name their relationship
 	// resolves to, not by the conventional one: OPC binds a part to its role
 	// through the relationship, so a package may legally call its styles part
 	// anything (C502).
 	d.resolveMetaPartNames(mainPartName)
 
-	// Preserve [Content_Types].xml
-	if ctData, err := d.reader.GetRawZipFile("[Content_Types].xml"); err == nil {
-		d.contentTypesData = ctData
+	// Preserve [Content_Types].xml. The reader already parsed it, so it is
+	// present; a failure to re-read it is a real read error, and swallowing it
+	// would leave the save to regenerate the part instead of preserving it.
+	ctData, err := d.reader.GetRawZipFile("[Content_Types].xml")
+	if err != nil {
+		return fmt.Errorf("docx: reading part [Content_Types].xml: %w", err)
 	}
+	d.contentTypesData = ctData
 
 	for _, file := range d.reader.Files {
 		name := file.Name
@@ -518,15 +540,14 @@ func (d *Document) loadAllParts(mainPartName string) error {
 		}
 		data, err := file.ReadAll()
 		if err != nil {
-			// A part the model parses must not silently vanish (C60): it
-			// would be dropped from the saved package (or regenerated from an
-			// empty model), losing content. Other unreadable parts are
-			// tolerated: they only fall out of the preserved set, and
-			// referenced-part absences are checked after the sweep.
-			if d.isModelParsedDocxPart(name) {
-				return fmt.Errorf("docx: reading part %s: %w", name, err)
-			}
-			continue
+			// A part that is present but cannot be read (a corrupt entry, or
+			// one past a decompression limit) fails the open. Treating it as
+			// absent is silent data loss: a model-parsed part would be
+			// regenerated from an empty model (C60) and any other part would
+			// simply be missing from the saved package. A part that is
+			// genuinely absent never reaches here, so the leniency for
+			// optional parts is unaffected.
+			return fmt.Errorf("docx: reading part %s: %w", name, err)
 		}
 
 		// Preserve all parts as raw bytes for round-trip
@@ -630,20 +651,6 @@ func (d *Document) loadAllParts(mainPartName string) error {
 	return d.checkReferencedParts(mainPartName)
 }
 
-// isModelParsedDocxPart reports whether the named part is parsed into the
-// document model at open (as opposed to preserved raw), so a read failure
-// must fail the open instead of silently dropping the part. The metadata parts
-// are compared against their resolved names, matching the parse switch.
-func (d *Document) isModelParsedDocxPart(name string) bool {
-	switch name {
-	case d.metaParts.styles, d.metaParts.numbering, d.metaParts.settings,
-		d.metaParts.footnotes, d.metaParts.endnotes, d.metaParts.comments,
-		d.metaParts.commentsExtended, d.metaParts.people, d.metaParts.bibliography:
-		return true
-	}
-	return isDocxHeaderPartName(name) || isDocxFooterPartName(name)
-}
-
 // isDocxHeaderPartName matches the conventional /word/headerN.xml names.
 func isDocxHeaderPartName(name string) bool {
 	return strings.HasPrefix(name, "/word/header") && strings.HasSuffix(name, ".xml")
@@ -697,10 +704,13 @@ func (d *Document) checkReferencedParts(mainPartName string) error {
 	return nil
 }
 
-// loadAllRelationships loads all relationship files into the model.
-func (d *Document) loadAllRelationships() {
+// loadAllRelationships loads all relationship files into the model. A
+// relationships part that cannot be read fails the open: unlike a malformed
+// one (recorded in unparsedRels and passed through raw), there are no bytes to
+// pass through, and modeling it as "no relationships" made the save drop it.
+func (d *Document) loadAllRelationships() error {
 	if d.reader == nil {
-		return
+		return nil
 	}
 
 	for _, file := range d.reader.Files {
@@ -710,7 +720,7 @@ func (d *Document) loadAllRelationships() {
 
 		data, err := file.ReadAll()
 		if err != nil {
-			continue
+			return fmt.Errorf("docx: reading part %s: %w", file.Name, err)
 		}
 
 		sourcePart := coxml.RelsPathToSourcePart(file.Name)
@@ -729,6 +739,7 @@ func (d *Document) loadAllRelationships() {
 
 		d.relationships[sourcePart] = rels
 	}
+	return nil
 }
 
 // Create creates a new, empty document.
@@ -1208,15 +1219,27 @@ func (d *Document) saveRoundTrip(writer *opc.Writer) error {
 		}
 		// A body that was read but not edited keeps a non-UTF-8 source's bytes.
 		if d.docEncoded {
-			docData = xmlb.PreferSource(d.rawPartData(mainPartName), docData)
+			src, err := d.readRawPart(mainPartName)
+			if err != nil {
+				return err
+			}
+			docData = xmlb.PreferSource(src, docData)
 		}
-	} else if docData = d.rawPartData(mainPartName); docData == nil {
-		// Bytes unavailable (should not happen for an opened document): fall
-		// back to materializing and regenerating.
-		var err error
-		docData, err = marshalDocumentXML(d.doc())
+	} else {
+		// The body was never materialized, so its original bytes pass through.
+		// A failed re-read is an error, never a cue to regenerate: the model
+		// was never built, so regenerating would write an empty body.
+		src, err := d.readRawPart(mainPartName)
 		if err != nil {
 			return err
+		}
+		if docData = src; docData == nil {
+			// Bytes unavailable (should not happen for an opened document):
+			// fall back to materializing and regenerating.
+			docData, err = marshalDocumentXML(d.doc())
+			if err != nil {
+				return err
+			}
 		}
 	}
 	if err := writer.WritePart(mainPartName, d.Flavor(), docData); err != nil {

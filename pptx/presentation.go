@@ -379,7 +379,10 @@ func openFromReader(reader *opc.ReadCloser) (*Presentation, error) {
 	}
 
 	// Relationship files are needed to resolve slide -> layout links on loaded slides.
-	p.loadAllRelationships()
+	if err := p.loadAllRelationships(); err != nil {
+		_ = reader.Close()
+		return nil, err
+	}
 
 	// Load slides
 	if err := p.loadSlides(mainPartName); err != nil {
@@ -424,7 +427,12 @@ func (p *Presentation) loadAllParts(mainPartName string) error {
 		name := file.Name
 		data, err := file.ReadAll()
 		if err != nil {
-			continue
+			// A part that is present but cannot be read (a corrupt entry, or
+			// one past a decompression limit) fails the open. Skipping it made
+			// the next save drop it from the package — a theme, presProps,
+			// docProps/app.xml — or regenerate it from nothing. A part that is
+			// genuinely absent never reaches here.
+			return fmt.Errorf("pptx: reading part %s: %w", name, err)
 		}
 
 		// Categorize the part
@@ -503,10 +511,13 @@ func (p *Presentation) slidePartLoaded(name string) bool {
 	return false
 }
 
-// loadAllRelationships loads all relationship files into the model.
-func (p *Presentation) loadAllRelationships() {
+// loadAllRelationships loads all relationship files into the model. A
+// relationships part that cannot be read fails the open: modeled as "no
+// relationships", the save dropped it, unlinking whatever the part bound (a
+// layout from its master, a slide from its images).
+func (p *Presentation) loadAllRelationships() error {
 	if p.reader == nil {
-		return
+		return nil
 	}
 
 	for _, file := range p.reader.Files {
@@ -516,7 +527,7 @@ func (p *Presentation) loadAllRelationships() {
 
 		data, err := file.ReadAll()
 		if err != nil {
-			continue
+			return fmt.Errorf("pptx: reading part %s: %w", file.Name, err)
 		}
 
 		rels, err := opc.UnmarshalRelationships(data)
@@ -530,6 +541,7 @@ func (p *Presentation) loadAllRelationships() {
 		p.relationships[sourcePart] = rels
 		p.rawRels[sourcePart] = data
 	}
+	return nil
 }
 
 // loadSlides loads all slides from the presentation.
@@ -1323,15 +1335,26 @@ func (p *Presentation) saveRoundTrip(writer *opc.Writer) error {
 			// A slide that was read but not edited keeps a non-UTF-8 source's
 			// bytes.
 			if slide.sxEncoded {
-				slideData = xmlb.PreferSource(slide.rawBytes(), slideData)
+				src, err := slide.readRaw()
+				if err != nil {
+					return err
+				}
+				slideData = xmlb.PreferSource(src, slideData)
 			}
-		} else if slideData = slide.rawBytes(); slideData == nil {
-			// Bytes unavailable (should not happen for an opened slide): fall
-			// back to materializing and regenerating.
-			var err error
-			slideData, err = slide.marshal()
+		} else {
+			src, err := slide.readRaw()
 			if err != nil {
-				return fmt.Errorf("marshal slide %d: %w", i, err)
+				// Never fall back to regenerating: the slide was never
+				// parsed, so the regenerated part would be an empty slide.
+				return err
+			}
+			if slideData = src; slideData == nil {
+				// Bytes unavailable (should not happen for an opened slide):
+				// fall back to materializing and regenerating.
+				slideData, err = slide.marshal()
+				if err != nil {
+					return fmt.Errorf("marshal slide %d: %w", i, err)
+				}
 			}
 		}
 		if err := writer.WritePart(slideName, opc.ContentTypeSlide, slideData); err != nil {
@@ -2158,7 +2181,7 @@ func (p *Presentation) saveNew(writer *opc.Writer) error {
 
 		// Every slide is regenerated from its model here. In this "save new" path
 		// there is no reader, so there are no original bytes to pass through:
-		// rawBytes returns nil unconditionally, and every slide reachable here
+		// readRaw returns nil unconditionally, and every slide reachable here
 		// has a model anyway. The passthrough branch this replaced was therefore
 		// dead twice over, and it matters only in the round-trip save (C515).
 		slideData, err := slide.marshal()
