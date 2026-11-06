@@ -39,6 +39,10 @@ import (
 var outsideDocumentModel = map[string]bool{
 	"StreamWriter": true,
 	"StreamSheet":  true,
+	// sheetText is the output buffer Sheet.Text and Workbook.Text write into;
+	// its fields track where the next line goes in the returned string, and
+	// nothing it holds is part of the workbook.
+	"sheetText": true,
 }
 
 // flagCalls are the calls that record "durable state changed, regenerate the
