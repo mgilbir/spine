@@ -85,7 +85,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: ./...
 
   # linux/386: int is 32 bits. Code that keeps int arithmetic from
