@@ -186,6 +186,9 @@
   forme 0.16.0 loads TrueType fonts in about half the time and memory, and
   no longer panics on 32-bit platforms when a font carries an offset of 2^31
   or more.
+  pdf0, which the chart renderer reaches through aster, moves from v0.5.0 to
+  v0.9.1, the release built on forme v0.16.0; aster v0.2.0's own tests pass
+  against it.
 - opc: an open that meets a legacy binary Office file (`.doc`, `.xls`, `.ppt`)
   returns the new `opc.ErrLegacyBinary`, naming Word, Excel or PowerPoint when
   the file says which. It returned `opc.ErrEncrypted` without a password, so a
