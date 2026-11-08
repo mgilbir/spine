@@ -1,10 +1,10 @@
 module github.com/mgilbir/spine
 
-go 1.26.0
+go 1.27
 
 require (
 	github.com/mgilbir/aster v0.2.0
-	github.com/mgilbir/forme v0.10.0
+	github.com/mgilbir/forme v0.16.0
 	github.com/mgilbir/gowemf v0.1.1
 	golang.org/x/tools v0.51.0
 )

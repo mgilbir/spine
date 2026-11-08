@@ -179,6 +179,13 @@
 
 ### Changed
 
+- The module requires Go 1.27 (it required 1.26) and depends on forme v0.16.0
+  (it depended on v0.10.0). forme 0.11.0 moved to Go 1.27. Every forme
+  release since 0.10.0 adds API and removes none, and the renderers' 992
+  tests, their golden images included, pass identically under both versions.
+  forme 0.16.0 loads TrueType fonts in about half the time and memory, and
+  no longer panics on 32-bit platforms when a font carries an offset of 2^31
+  or more.
 - opc: an open that meets a legacy binary Office file (`.doc`, `.xls`, `.ppt`)
   returns the new `opc.ErrLegacyBinary`, naming Word, Excel or PowerPoint when
   the file says which. It returned `opc.ErrEncrypted` without a password, so a

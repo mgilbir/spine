@@ -1,7 +1,7 @@
 ---
 name: office-files
 description: Create, read, edit, and verify Office files (xlsx, docx, pptx) with the spine CLI and spine serve. Use for any task involving .xlsx/.pptx/.docx files — spreadsheets, decks, documents — instead of writing Python or Go scripts. Covers the read/author loop, the JSON operation vocabulary, sessions over HTTP, and when to verify with text versus rendered images.
-compatibility: Needs the spine CLI (Go 1.26+ toolchain to install or build). Linux and macOS are fully supported; on Windows the CLI builds and the read/edit commands work, but `spine serve` is not yet supported (file locking).
+compatibility: Needs the spine CLI (Go 1.27+ toolchain to install or build). Linux and macOS are fully supported; on Windows the CLI builds and the read/edit commands work, but `spine serve` is not yet supported (file locking).
 ---
 
 # Office files with spine
@@ -16,7 +16,7 @@ below as `spine`) for every command:
 
 1. **Already installed?** `command -v spine` — if it prints a path, use it.
 2. **A spine checkout available?** Build it once, from the repository root
-   (Go 1.26+ toolchain): `go build -o /tmp/spine ./cmd/spine`.
+   (Go 1.27+ toolchain): `go build -o /tmp/spine ./cmd/spine`.
 3. **Otherwise install a release** with a Go toolchain:
    `go install github.com/mgilbir/spine/cmd/spine@latest` — the binary lands
    in `$(go env GOBIN)` or `~/go/bin`; use that path if it is not on your
