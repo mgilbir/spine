@@ -190,6 +190,11 @@
   drawn by aster) are identical under aster v0.2.0 and v0.3.0. forme 0.16.0
   loads TrueType fonts in about half the time and memory, and no longer
   panics on 32-bit platforms when a font carries an offset of 2^31 or more.
+- spine-render and `spine serve` draw a chart with aster's `VegaToImage`
+  rather than encoding it as a PNG and decoding it again. Every slide of the
+  93 corpus decks with charts renders byte for byte as before, and the five
+  decks with the most charts render about 10% faster at 96 dpi and 3% faster
+  at 288 dpi.
 - opc: an open that meets a legacy binary Office file (`.doc`, `.xls`, `.ppt`)
   returns the new `opc.ErrLegacyBinary`, naming Word, Excel or PowerPoint when
   the file says which. It returned `opc.ErrEncrypted` without a password, so a
