@@ -21,6 +21,7 @@ Each bullet links to the guide that carries the detail.
 - **Word (DOCX)** — create and modify documents: styles, tables, tracked changes, comments, footnotes, mail merge, content controls, and fields; see [docs/docx.md](docs/docx.md).
 - **Excel (XLSX)** — create and modify workbooks: add and delete sheets (deletion cascades to the parts only that sheet owned), formulas, styles, pivot tables, conditional formatting, sparklines, tables, and page/print setup; see [docs/xlsx.md](docs/xlsx.md).
 - **Rendering** — draw slides, Word pages, and sheet ranges to PNG or SVG in pure Go (`pptxrender`, `docxrender`, `xlsxrender`), or from the command line with `spine-render`; see [Rendering](docs/rendering.md).
+- **Command line** — the `spine` command inspects and edits xlsx and pptx files: summarize, list, print text or cells, set a value, apply a batch of JSON operations atomically, or serve one file over local HTTP with live PNG/SVG rendering (`go install github.com/mgilbir/spine/cmd/spine@latest`; `spine help` lists the commands).
 
 ## Installation
 
@@ -340,6 +341,7 @@ Font sizes are the exception: `SetFontSize` takes plain points, not EMUs — use
 - `xlsx/` - Excel document support
   - `xlsxrender/` - Render a cell range to a `render.Page`
 - `render/` - Page snapshots and the PNG/SVG writers shared by the three renderers
+- `cmd/spine/` - Command-line tool to inspect and edit .xlsx and .pptx files
 - `cmd/spine-render/` - Command-line renderer for .pptx, .docx, and .xlsx files
 
 ## Documentation
