@@ -1,6 +1,100 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 - 2026-11-09
+
+The `spine` command inspects and edits spreadsheets and presentations from the
+shell or a script: summarize a file, list its sheets, slides and shapes, print
+its text or a range of cells, set one value, apply a batch of JSON operations
+atomically, or serve one file over local HTTP with PNG and SVG rendering of the
+live document.
+
+The rest of the release is about reading more files correctly and failing
+loudly instead of losing data. A part in UTF-16, or one declaring a single-byte
+code page, now opens, saves and renders, and an untouched part keeps its source
+bytes. A part that is in the package but cannot be read fails the open, where
+the next save used to drop it. A legacy binary `.doc`, `.xls` or `.ppt` is
+reported as one (`opc.ErrLegacyBinary`) rather than as encrypted. Crafted files
+no longer panic 32-bit builds through CFB sector numbers or style indices, and
+`Workbook.Text` no longer allocates many times the text it returns.
+
+Nothing that existed in 0.4.0 has been removed or changed shape; everything new
+is added API (`gorelease` against 0.4.0 reports only compatible changes). Two
+behaviours change for existing code: `AddSlideFromLayout` now clones the
+layout's placeholders, so code that added its own title or body placeholder to
+such a slide gets two, and opening a package with an unreadable part returns an
+error. The module now requires Go 1.27, for forme v0.16.0 and aster v0.3.0.
+
+### Added
+
+- `spine`, a command-line tool for xlsx and pptx files (`cmd/spine`). `info`,
+  `ls`, `text` and `cells` read; `set` applies one write and `edit` a batch of
+  JSON operations (`ops-schema` prints their schema), each saved atomically and
+  all-or-nothing; `new` creates an empty file. `serve` holds one file in memory
+  behind a local HTTP API on 127.0.0.1 with the same reads and operations,
+  optional bearer-token authentication and a journal, and renders the live
+  document to PNG or SVG. Every command takes `--json` for machine-readable
+  output and `--password` for encrypted files.
+- common/xml: `UTF8` returns a part's bytes as the UTF-8 document they encode
+  (UTF-16 of either byte order, or a declared single-byte code page);
+  `NewPartDecoder` decodes that form and returns the bytes to splice into;
+  `PreferSource` keeps a part's source bytes when they encode what was
+  regenerated; `CheckDocumentStart` and `CheckDocumentBounds` check what may
+  stand before and after the root element; `IsSpace` and `IsBlank` follow XML's
+  definition of white space.
+- opc: `ErrLegacyBinary` for a legacy binary Office file, and
+  `ErrDecompressionLimit`, which every decompression-limit error matches.
+- render: `FontResolverError` classifies a font resolver's failure as
+  `ErrUnsupported`, as every format's renderer now does.
+
+### Changed
+
+- The module requires Go 1.27 (it required 1.26), for forme v0.16.0 (from
+  v0.10.0) and aster v0.3.0 (from v0.2.0); pdf0, which the chart renderer
+  reaches through aster, moves from v0.5.0 to v0.9.1. Every forme release
+  since 0.10.0 adds API and removes none, and the renderers' 992 tests, their
+  golden images included, pass identically. aster 0.3.0's breaking changes
+  are in calls spine does not make, or refuse malformed specifications with
+  `ErrLimit` where they ran away; spine's charts render byte for byte
+  as before: the 2210 slides of the 93 corpus decks with charts (561 of them
+  drawn by aster) are identical under aster v0.2.0 and v0.3.0. forme 0.16.0
+  loads TrueType fonts in about half the time and memory, and no longer
+  panics on 32-bit platforms when a font carries an offset of 2^31 or more.
+- spine-render and `spine serve` draw a chart with aster's `VegaToImage`
+  rather than encoding it as a PNG and decoding it again. Every slide of the
+  93 corpus decks with charts renders byte for byte as before, and the five
+  decks with the most charts render about 10% faster at 96 dpi and 3% faster
+  at 288 dpi.
+- opc: an open that meets a legacy binary Office file (`.doc`, `.xls`, `.ppt`)
+  returns the new `opc.ErrLegacyBinary`, naming Word, Excel or PowerPoint when
+  the file says which. It returned `opc.ErrEncrypted` without a password, so a
+  caller prompted for a password that does not exist, and
+  `opc.ErrCorruptedPackage` with one. Both are compound files, so telling them
+  apart reads the container's directory: an open without a password now reads
+  the whole input (bounded by `WithMaxEncryptedInputSize`) where it read 8
+  bytes, and a malformed compound file reports `ErrCorruptedPackage` instead of
+  `ErrEncrypted` (D54).
+- docxrender: with `render.Options.Warn` set, a color glyph a Word page can
+  only draw approximately is drawn with the paint nearest its own (or as its
+  outline in the text color) and reported, wrapping `render.ErrApproximated`,
+  as on a slide. `Pages.Page` prepared every page strictly, so such a glyph
+  failed the whole page with `render.ErrUnsupported` even in best effort.
+  Strict mode is unchanged. Page warnings read `docx: page N: …` and are
+  reported once per kind per page; `Pages.Page` calls `Warn`, so pages
+  prepared concurrently can call it concurrently (D56).
+- pptx: `AddSlideFromLayout` adds a placeholder for each of the layout's
+  placeholders, as PowerPoint does when it adds a slide: same type, index,
+  orientation, size hint and name, with no geometry or text-body settings of
+  its own, so it takes the layout's position, size and formatting. The date,
+  footer and slide-number placeholders are not copied (they come from the
+  header and footer settings). The slide used to have no placeholders, so
+  `TitlePlaceholder` and `BodyPlaceholder` found nothing on it. Code that added
+  its own title or body placeholder to such a slide now gets two: fill the
+  cloned ones instead.
+
+### Deprecated
+
+- pptx: `ErrNoSlides`. No function has ever returned it, so code matching it
+  never matched; a presentation with no slides opens, saves and validates.
 
 ### Fixed
 
@@ -176,56 +270,6 @@
   save instead of being written empty (docx panicked; pptx wrote a blank
   slide). `VerifySignatures` returns an error for an unreadable signature
   origin relationships part rather than reporting fewer signatures (C619).
-
-### Changed
-
-- The module requires Go 1.27 (it required 1.26), for forme v0.16.0 (from
-  v0.10.0) and aster v0.3.0 (from v0.2.0); pdf0, which the chart renderer
-  reaches through aster, moves from v0.5.0 to v0.9.1. Every forme release
-  since 0.10.0 adds API and removes none, and the renderers' 992 tests, their
-  golden images included, pass identically. aster 0.3.0's breaking changes
-  are in calls spine does not make, or refuse malformed specifications with
-  `ErrLimit` where they ran away; spine's charts render byte for byte
-  as before: the 2210 slides of the 93 corpus decks with charts (561 of them
-  drawn by aster) are identical under aster v0.2.0 and v0.3.0. forme 0.16.0
-  loads TrueType fonts in about half the time and memory, and no longer
-  panics on 32-bit platforms when a font carries an offset of 2^31 or more.
-- spine-render and `spine serve` draw a chart with aster's `VegaToImage`
-  rather than encoding it as a PNG and decoding it again. Every slide of the
-  93 corpus decks with charts renders byte for byte as before, and the five
-  decks with the most charts render about 10% faster at 96 dpi and 3% faster
-  at 288 dpi.
-- opc: an open that meets a legacy binary Office file (`.doc`, `.xls`, `.ppt`)
-  returns the new `opc.ErrLegacyBinary`, naming Word, Excel or PowerPoint when
-  the file says which. It returned `opc.ErrEncrypted` without a password, so a
-  caller prompted for a password that does not exist, and
-  `opc.ErrCorruptedPackage` with one. Both are compound files, so telling them
-  apart reads the container's directory: an open without a password now reads
-  the whole input (bounded by `WithMaxEncryptedInputSize`) where it read 8
-  bytes, and a malformed compound file reports `ErrCorruptedPackage` instead of
-  `ErrEncrypted` (D54).
-- docxrender: with `render.Options.Warn` set, a color glyph a Word page can
-  only draw approximately is drawn with the paint nearest its own (or as its
-  outline in the text color) and reported, wrapping `render.ErrApproximated`,
-  as on a slide. `Pages.Page` prepared every page strictly, so such a glyph
-  failed the whole page with `render.ErrUnsupported` even in best effort.
-  Strict mode is unchanged. Page warnings read `docx: page N: …` and are
-  reported once per kind per page; `Pages.Page` calls `Warn`, so pages
-  prepared concurrently can call it concurrently (D56).
-- pptx: `AddSlideFromLayout` adds a placeholder for each of the layout's
-  placeholders, as PowerPoint does when it adds a slide: same type, index,
-  orientation, size hint and name, with no geometry or text-body settings of
-  its own, so it takes the layout's position, size and formatting. The date,
-  footer and slide-number placeholders are not copied (they come from the
-  header and footer settings). The slide used to have no placeholders, so
-  `TitlePlaceholder` and `BodyPlaceholder` found nothing on it. Code that added
-  its own title or body placeholder to such a slide now gets two: fill the
-  cloned ones instead.
-
-### Deprecated
-
-- pptx: `ErrNoSlides`. No function has ever returned it, so code matching it
-  never matched; a presentation with no slides opens, saves and validates.
 
 ## 0.4.0 - 2026-10-10
 
