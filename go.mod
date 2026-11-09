@@ -1,9 +1,9 @@
 module github.com/mgilbir/spine
 
-go 1.27
+go 1.27.0
 
 require (
-	github.com/mgilbir/aster v0.2.0
+	github.com/mgilbir/aster v0.3.0
 	github.com/mgilbir/forme v0.16.0
 	github.com/mgilbir/gowemf v0.1.1
 	golang.org/x/tools v0.51.0
@@ -11,7 +11,7 @@ require (
 
 require (
 	github.com/mgilbir/formalis v0.3.1 // indirect
-	github.com/mgilbir/goecma262 v0.3.2 // indirect
+	github.com/mgilbir/goecma262 v0.3.3 // indirect
 	github.com/mgilbir/golittlecms v0.0.0-20260727161601-f6af7cfe1556 // indirect
 	github.com/mgilbir/gopenjpeg v0.1.1 // indirect
 	github.com/mgilbir/pdf0 v0.9.1 // indirect
