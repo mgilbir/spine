@@ -6,13 +6,11 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"image"
-	"image/png"
 	"io"
 	"math"
 	"os"
@@ -142,11 +140,14 @@ func chartRenderer(fonts []fontFile, timeout time.Duration) (render.ChartRendere
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		data, err := conv.VegaToPNG(spec, aster.WithScale(scale))
+		// VegaToImage is VegaToPNG without the encode, and the image is
+		// what the PNG would decode to; decoding it again cost a third of
+		// the call.
+		img, err := conv.VegaToImage(spec, aster.WithScale(scale))
 		if err != nil {
 			return nil, chartError(err)
 		}
-		return png.Decode(bytes.NewReader(data))
+		return img, nil
 	}
 	return draw, conv.Close, nil
 }

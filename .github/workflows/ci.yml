@@ -36,7 +36,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          # Pin to the version declared in go.mod (go 1.26).
+          # Pin to the version declared in go.mod (go 1.27).
           go-version-file: go.mod
           # The module gained its first requirement (golang.org/x/tools, for
           # internal/maporder) and so its first go.sum, which is what the
@@ -85,7 +85,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.12.2
+          version: v2.15.0
           args: ./...
 
   # linux/386: int is 32 bits. Code that keeps int arithmetic from
